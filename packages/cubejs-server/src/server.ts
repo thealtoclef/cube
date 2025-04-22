@@ -13,6 +13,7 @@ import http from 'http';
 import util from 'util';
 import bodyParser from 'body-parser';
 import cors, { CorsOptions } from 'cors';
+import promBundle from 'express-prom-bundle';
 
 import type { SQLServer, SQLServerOptions } from '@cubejs-backend/api-gateway';
 import type { BaseDriver } from '@cubejs-backend/query-orchestrator';
@@ -88,6 +89,14 @@ export class CubejsServer {
       }
 
       const app = express();
+      app.use(promBundle({
+        includeStatusCode: true,
+        includeMethod: true,
+        includePath: true,
+        includeUp: true,
+        metricType: 'histogram',
+        buckets: [0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10, 15, 20, 25, 30, 40, 50, 60, 90],
+      }));
       app.use(cors(this.config.http.cors));
       app.use(bodyParser.json({ limit: '50mb' }));
 

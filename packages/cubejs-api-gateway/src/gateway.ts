@@ -101,6 +101,7 @@ import {
   transformJoins,
   transformPreAggregations,
 } from './helpers/transformMetaExtended';
+import { loadResponseTime, getSQLResultTime } from './metrics';
 
 type HandleErrorOptions = {
     e: any,
@@ -1824,6 +1825,7 @@ class ApiGateway {
       apiType = 'rest',
       ...props
     } = request;
+    const histogramMetric = loadResponseTime.startTimer();
     const requestStarted = new Date();
 
     try {
@@ -1868,6 +1870,7 @@ class ApiGateway {
 
       const results = await Promise.all(
         normalizedQueries.map(async (normalizedQuery, index) => {
+          const histogramMetric = getSQLResultTime.startTimer();
           slowQuery = slowQuery ||
             Boolean(sqlQueries[index].slowQuery);
 
@@ -1881,7 +1884,7 @@ class ApiGateway {
             metaConfigResult, normalizedQuery
           );
 
-          return this.prepareResultTransformData(
+          const result = this.prepareResultTransformData(
             context,
             queryType,
             normalizedQuery,
@@ -1890,6 +1893,19 @@ class ApiGateway {
             response,
             resType,
           );
+          
+          const rootResult = result.getRootResultObject()[0];
+          histogramMetric({
+            tenant: context.securityContext.tenant,
+            api_type: apiType,
+            data_source: rootResult.dataSource,
+            db_type: rootResult.dbType,
+            ext_db_type: rootResult.extDbType,
+            external: rootResult.external,
+            slow_query: rootResult.slowQuery ? 'true' : 'false',
+          });
+
+          return result;
         })
       );
 
@@ -1920,9 +1936,17 @@ class ApiGateway {
         // We prepare the final json result on native side
         const resultMulti = new ResultMultiWrapper(results, { queryType, slowQuery });
         await res(resultMulti);
+        histogramMetric({
+          tenant: context.securityContext.tenant,
+          api_type: apiType,
+        });
       } else {
         // We prepare the full final json result on native side
         await res(results[0]);
+        histogramMetric({
+          tenant: context.securityContext.tenant,
+          api_type: apiType,
+        });
       }
     } catch (e: any) {
       this.handleError({
@@ -1937,6 +1961,7 @@ class ApiGateway {
       context,
       res,
     } = request;
+    const histogramMetric = loadResponseTime.startTimer();
     const requestStarted = new Date();
 
     try {
@@ -2020,9 +2045,14 @@ class ApiGateway {
         }
 
         await res(request.streaming ? results[0] : { results });
+        histogramMetric({
+          tenant: context.securityContext.tenant,
+          api_type: request.apiType,
+        });
       } else {
         results = await Promise.all(
           normalizedQueries.map(async (normalizedQuery, index) => {
+            const histogramMetric = getSQLResultTime.startTimer();
             slowQuery = slowQuery ||
               Boolean(sqlQueries[index].slowQuery);
 
@@ -2040,7 +2070,7 @@ class ApiGateway {
               sqlQueries[index],
             );
 
-            return this.prepareResultTransformData(
+            const result = this.prepareResultTransformData(
               context,
               queryType,
               normalizedQuery,
@@ -2049,15 +2079,36 @@ class ApiGateway {
               response,
               resType,
             );
+
+            const rootResult = result.getRootResultObject()[0];
+            histogramMetric({
+              tenant: context.securityContext.tenant,
+              api_type: request.apiType,
+              data_source: rootResult.dataSource,
+              db_type: rootResult.dbType,
+              ext_db_type: rootResult.extDbType,
+              external: rootResult.external,
+              slow_query: rootResult.slowQuery ? 'true' : 'false',
+            });
+
+            return result;
           })
         );
 
         if (request.streaming) {
           await res(results[0]);
+          histogramMetric({
+            tenant: context.securityContext.tenant,
+            api_type: request.apiType,
+          });
         } else {
           // We prepare the final json result on native side
           const resultArray = new ResultArrayWrapper(results);
           await res(resultArray);
+          histogramMetric({
+            tenant: context.securityContext.tenant,
+            api_type: request.apiType,
+          });
         }
       }
     } catch (e: any) {

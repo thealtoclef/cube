@@ -2257,14 +2257,37 @@ class ApiGateway {
       }, context);
       res({ error: e.message || e.error.message || e.error.toString(), requestId }, { status: 200 });
     } else if (e.error) {
-      this.log({
-        type: 'Orchestrator error',
-        query,
-        error: e.error,
-        duration: this.duration(requestStarted),
-      }, context);
-      res({ error: e.message || e.error.message || e.error.toString(), requestId }, { status: 400 });
-    } else if (e.type === 'UserError') {
+      // Check if this is a Python UserError
+      const errorMessage = e.message || e.error.message || e.error.toString();
+      const isPythonUserError = this.isPythonUserError(errorMessage);
+
+      if (isPythonUserError) {
+        this.log({
+          type: 'User Error',
+          query,
+          error: errorMessage,
+          duration: this.duration(requestStarted)
+        }, context);
+        res(
+          {
+            type: 'User Error',
+            error: errorMessage,
+            plainError,
+            stack,
+            requestId
+          },
+          { status: 400 }
+        );
+      } else {
+        this.log({
+          type: 'Orchestrator error',
+          query,
+          error: e.error,
+          duration: this.duration(requestStarted),
+        }, context);
+        res({ error: errorMessage, requestId }, { status: 400 });
+      }
+    } else if (e.type === 'UserError' || e.type === 'User Error') {
       this.log({
         type: e.type,
         query,
@@ -2565,18 +2588,33 @@ class ApiGateway {
         res.status(e.status).json({ error: e.message });
       } else if (e instanceof Error) {
         const stack = getEnv('devMode') ? e.stack : undefined;
+        const errorString = e.toString();
+
+        // Check if this is a Python UserError to determine HTTP status code
+        const isPythonUserError = this.isPythonUserError(errorString);
+        const statusCode = isPythonUserError ? 400 : 500;
+
         this.log({
           type: 'Auth Error',
           token,
-          error: stack || e.toString()
+          error: stack || errorString
         }, <any>req);
 
-        res.status(500).json({
-          error: e.toString(),
+        res.status(statusCode).json({
+          error: errorString,
           stack,
         });
       }
     }
+  }
+
+  /**
+   * Helper function to detect if an error is a Python UserError
+   * Uses startsWith for accuracy to avoid false positives
+   */
+  private isPythonUserError(errorString: string): boolean {
+    return typeof errorString === 'string' &&
+      errorString.startsWith('Error: Python error: UserError: ');
   }
 
   protected checkAuth: RequestHandler = async (req, res, next) => {

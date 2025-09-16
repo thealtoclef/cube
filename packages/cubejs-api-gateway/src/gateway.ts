@@ -102,7 +102,7 @@ import {
   transformJoins,
   transformPreAggregations,
 } from './helpers/transformMetaExtended';
-import { loadResponseTime, getSQLResultTime } from './metrics';
+import { loadResponseTime, getSQLResultTime, metaResponseTime, preAggregationsResponseTime, cubeSqlResponseTime, dryRunResponseTime } from './metrics';
 
 type HandleErrorOptions = {
     e: any,
@@ -375,19 +375,49 @@ class ApiGateway {
     }));
 
     app.get(`${this.basePath}/v1/dry-run`, userMiddlewares, userAsyncHandler(async (req: any, res) => {
-      await this.dryRun({
-        query: req.query.query,
-        context: req.context,
-        res: this.resToResultFn(res)
-      });
+      const histogramMetric = dryRunResponseTime.startTimer();
+
+      try {
+        await this.dryRun({
+          query: req.query.query,
+          context: req.context,
+          res: this.resToResultFn(res)
+        });
+
+        histogramMetric({
+          tenant: req.context.securityContext?.tenant || 'unknown',
+          method: 'GET',
+        });
+      } catch (e: any) {
+        histogramMetric({
+          tenant: req.context.securityContext?.tenant || 'unknown',
+          method: 'GET',
+        });
+        throw e;
+      }
     }));
 
     app.post(`${this.basePath}/v1/dry-run`, jsonParser, userMiddlewares, userAsyncHandler(async (req, res) => {
-      await this.dryRun({
-        query: req.body.query,
-        context: req.context,
-        res: this.resToResultFn(res)
-      });
+      const histogramMetric = dryRunResponseTime.startTimer();
+
+      try {
+        await this.dryRun({
+          query: req.body.query,
+          context: req.context,
+          res: this.resToResultFn(res)
+        });
+
+        histogramMetric({
+          tenant: req.context.securityContext?.tenant || 'unknown',
+          method: 'POST',
+        });
+      } catch (e: any) {
+        histogramMetric({
+          tenant: req.context.securityContext?.tenant || 'unknown',
+          method: 'POST',
+        });
+        throw e;
+      }
     }));
 
     /** **************************************************************
@@ -398,16 +428,34 @@ class ApiGateway {
       `${this.basePath}/v1/meta`,
       userMiddlewares,
       userAsyncHandler(async (req, res) => {
-        if ('extended' in req.query) {
-          await this.metaExtended({
-            context: req.context,
-            res: this.resToResultFn(res),
+        const histogramMetric = metaResponseTime.startTimer();
+        const isExtended = 'extended' in req.query;
+
+        try {
+          if (isExtended) {
+            await this.metaExtended({
+              context: req.context,
+              res: this.resToResultFn(res),
+            });
+          } else {
+            await this.meta({
+              context: req.context,
+              res: this.resToResultFn(res),
+            });
+          }
+
+          histogramMetric({
+            tenant: req.context.securityContext?.tenant || 'unknown',
+            endpoint: 'meta',
+            extended: isExtended ? 'true' : 'false',
           });
-        } else {
-          await this.meta({
-            context: req.context,
-            res: this.resToResultFn(res),
+        } catch (e: any) {
+          histogramMetric({
+            tenant: req.context.securityContext?.tenant || 'unknown',
+            endpoint: 'meta',
+            extended: isExtended ? 'true' : 'false',
           });
+          throw e;
         }
       })
     );
@@ -419,6 +467,7 @@ class ApiGateway {
         const { query } = req.body;
 
         const requestStarted = new Date();
+        const histogramMetric = cubeSqlResponseTime.startTimer();
 
         res.setHeader('Content-Type', 'application/json');
         res.setHeader('Transfer-Encoding', 'chunked');
@@ -427,7 +476,14 @@ class ApiGateway {
           await this.assertApiScope('data', req.context?.securityContext);
 
           await this.sqlServer.execSql(req.body.query, res, req.context?.securityContext);
+
+          histogramMetric({
+            tenant: req.context.securityContext?.tenant || 'unknown',
+          });
         } catch (e: any) {
+          histogramMetric({
+            tenant: req.context.securityContext?.tenant || 'unknown',
+          });
           this.handleError({
             e,
             query: {
@@ -446,19 +502,34 @@ class ApiGateway {
       `${this.basePath}/v1/pre-aggregations/can-use`,
       userMiddlewares,
       userAsyncHandler(async (req, res) => {
-        await this.assertApiScope(
-          'meta',
-          req?.context?.securityContext
-        );
+        const histogramMetric = preAggregationsResponseTime.startTimer();
 
-        const { transformedQuery, references } = req.body;
-        const compilerApi = await this.getCompilerApi(req.context as RequestContext);
-        const canUsePreAggregationForTransformedQuery = compilerApi.canUsePreAggregationForTransformedQuery(
-          transformedQuery,
-          references,
-        );
+        try {
+          await this.assertApiScope(
+            'meta',
+            req?.context?.securityContext
+          );
 
-        res.json({ canUsePreAggregationForTransformedQuery });
+          const { transformedQuery, references } = req.body;
+          const compilerApi = await this.getCompilerApi(req.context as RequestContext);
+          const canUsePreAggregationForTransformedQuery = compilerApi.canUsePreAggregationForTransformedQuery(
+            transformedQuery,
+            references,
+          );
+
+          res.json({ canUsePreAggregationForTransformedQuery });
+
+          histogramMetric({
+            tenant: req.context.securityContext?.tenant || 'unknown',
+            endpoint: 'pre-aggregations-can-use',
+          });
+        } catch (e: any) {
+          histogramMetric({
+            tenant: req.context.securityContext?.tenant || 'unknown',
+            endpoint: 'pre-aggregations-can-use',
+          });
+          throw e;
+        }
       })
     );
 
@@ -469,7 +540,24 @@ class ApiGateway {
     app.post(
       `${this.basePath}/v1/pre-aggregations/jobs`,
       userMiddlewares,
-      userAsyncHandler(this.preAggregationsJobs.bind(this)),
+      userAsyncHandler(async (req, res) => {
+        const histogramMetric = preAggregationsResponseTime.startTimer();
+
+        try {
+          await this.preAggregationsJobs(req, res);
+
+          histogramMetric({
+            tenant: req.context.securityContext?.tenant || 'unknown',
+            endpoint: 'pre-aggregations-jobs',
+          });
+        } catch (e: any) {
+          histogramMetric({
+            tenant: req.context.securityContext?.tenant || 'unknown',
+            endpoint: 'pre-aggregations-jobs',
+          });
+          throw e;
+        }
+      }),
     );
 
     /** **************************************************************
@@ -1903,11 +1991,13 @@ class ApiGateway {
           histogramMetric({
             tenant: context.securityContext.tenant,
             api_type: apiType,
+            query_type: queryType,
             data_source: rootResult.dataSource,
             db_type: rootResult.dbType,
             ext_db_type: rootResult.extDbType,
             external: rootResult.external,
             slow_query: rootResult.slowQuery ? 'true' : 'false',
+            has_pre_aggregations: Object.keys(rootResult.usedPreAggregations || {}).length > 0 ? 'true' : 'false',
           });
 
           return result;
@@ -1944,6 +2034,11 @@ class ApiGateway {
         histogramMetric({
           tenant: context.securityContext.tenant,
           api_type: apiType,
+          query_type: queryType,
+          slow_query: slowQuery ? 'true' : 'false',
+          multi_query: 'true',
+          query_count: results.length.toString(),
+          is_playground: context.signedWithPlaygroundAuthSecret ? 'true' : 'false',
         });
       } else {
         // We prepare the full final json result on native side
@@ -1951,6 +2046,11 @@ class ApiGateway {
         histogramMetric({
           tenant: context.securityContext.tenant,
           api_type: apiType,
+          query_type: queryType,
+          slow_query: slowQuery ? 'true' : 'false',
+          multi_query: 'false',
+          query_count: results.length.toString(),
+          is_playground: context.signedWithPlaygroundAuthSecret ? 'true' : 'false',
         });
       }
     } catch (e: any) {
@@ -2089,11 +2189,13 @@ class ApiGateway {
             histogramMetric({
               tenant: context.securityContext.tenant,
               api_type: request.apiType,
+              query_type: queryType,
               data_source: rootResult.dataSource,
               db_type: rootResult.dbType,
               ext_db_type: rootResult.extDbType,
               external: rootResult.external,
               slow_query: rootResult.slowQuery ? 'true' : 'false',
+              has_pre_aggregations: Object.keys(rootResult.usedPreAggregations || {}).length > 0 ? 'true' : 'false',
             });
 
             return result;
@@ -2105,6 +2207,11 @@ class ApiGateway {
           histogramMetric({
             tenant: context.securityContext.tenant,
             api_type: request.apiType,
+            query_type: queryType,
+            slow_query: results.some((r: any) => r.getRootResultObject()[0].slowQuery) ? 'true' : 'false',
+            multi_query: results.length > 1 ? 'true' : 'false',
+            query_count: results.length.toString(),
+            is_playground: context.signedWithPlaygroundAuthSecret ? 'true' : 'false',
           });
         } else {
           // We prepare the final json result on native side
@@ -2113,6 +2220,11 @@ class ApiGateway {
           histogramMetric({
             tenant: context.securityContext.tenant,
             api_type: request.apiType,
+            query_type: queryType,
+            slow_query: results.some((r: any) => r.getRootResultObject()[0].slowQuery) ? 'true' : 'false',
+            multi_query: results.length > 1 ? 'true' : 'false',
+            query_count: results.length.toString(),
+            is_playground: context.signedWithPlaygroundAuthSecret ? 'true' : 'false',
           });
         }
       }

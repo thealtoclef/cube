@@ -92,6 +92,9 @@ export class CubejsServer {
         throw new Error('CubeServer is already listening');
       }
 
+      // Optimized distribution: tight in 10-30s range, loose in 30-60s, coarse in 60-120s
+      const API_RESPONSE_BUCKETS = [0.1, 0.25, 0.5, 1, 1.5, 2, 2.5, 3, 4, 5, 7.5, 10, 12.5, 15, 20, 25, 30, 40, 50, 60, 90, 120];
+
       const app = express();
       app.use(promBundle({
         includeStatusCode: true,
@@ -99,7 +102,7 @@ export class CubejsServer {
         includePath: true,
         includeUp: true,
         metricType: 'histogram',
-        buckets: [0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10, 15, 20, 25, 30, 40, 50, 60, 90],
+        buckets: API_RESPONSE_BUCKETS,
       }));
       app.use(cors(this.config.http.cors));
       app.use(bodyParser.json({ limit: '50mb' }));

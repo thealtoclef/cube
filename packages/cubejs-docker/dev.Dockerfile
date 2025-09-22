@@ -79,14 +79,14 @@ COPY packages/cubejs-vertica-driver/package.json packages/cubejs-vertica-driver/
 # COPY packages/cubejs-testing/package.json packages/cubejs-testing/package.json
 # COPY packages/cubejs-docker/package.json packages/cubejs-docker/package.json
 # Frontend
-COPY packages/cubejs-templates/package.json packages/cubejs-templates/package.json
-COPY packages/cubejs-client-core/package.json packages/cubejs-client-core/package.json
-COPY packages/cubejs-client-react/package.json packages/cubejs-client-react/package.json
-COPY packages/cubejs-client-vue/package.json packages/cubejs-client-vue/package.json
-COPY packages/cubejs-client-vue3/package.json packages/cubejs-client-vue3/package.json
-COPY packages/cubejs-client-ngx/package.json packages/cubejs-client-ngx/package.json
-COPY packages/cubejs-client-ws-transport/package.json packages/cubejs-client-ws-transport/package.json
-COPY packages/cubejs-playground/package.json packages/cubejs-playground/package.json
+# COPY packages/cubejs-templates/package.json packages/cubejs-templates/package.json
+# COPY packages/cubejs-client-core/package.json packages/cubejs-client-core/package.json
+# COPY packages/cubejs-client-react/package.json packages/cubejs-client-react/package.json
+# COPY packages/cubejs-client-vue/package.json packages/cubejs-client-vue/package.json
+# COPY packages/cubejs-client-vue3/package.json packages/cubejs-client-vue3/package.json
+# COPY packages/cubejs-client-ngx/package.json packages/cubejs-client-ngx/package.json
+# COPY packages/cubejs-client-ws-transport/package.json packages/cubejs-client-ws-transport/package.json
+# COPY packages/cubejs-playground/package.json packages/cubejs-playground/package.json
 
 RUN yarn policies set-version v1.22.22
 # Yarn v1 uses aggressive timeouts with summing time spending on fs, https://github.com/yarnpkg/yarn/issues/4890
@@ -157,16 +157,16 @@ COPY packages/cubejs-vertica-driver/ packages/cubejs-vertica-driver/
 # COPY packages/cubejs-testing/ packages/cubejs-testing/
 # COPY packages/cubejs-docker/ packages/cubejs-docker/
 # Frontend
-COPY packages/cubejs-templates/ packages/cubejs-templates/
-COPY packages/cubejs-client-core/ packages/cubejs-client-core/
-COPY packages/cubejs-client-react/ packages/cubejs-client-react/
-COPY packages/cubejs-client-vue/ packages/cubejs-client-vue/
-COPY packages/cubejs-client-vue3/ packages/cubejs-client-vue3/
-COPY packages/cubejs-client-ngx/ packages/cubejs-client-ngx/
-COPY packages/cubejs-client-ws-transport/ packages/cubejs-client-ws-transport/
-COPY packages/cubejs-playground/ packages/cubejs-playground/
+# COPY packages/cubejs-templates/ packages/cubejs-templates/
+# COPY packages/cubejs-client-core/ packages/cubejs-client-core/
+# COPY packages/cubejs-client-react/ packages/cubejs-client-react/
+# COPY packages/cubejs-client-vue/ packages/cubejs-client-vue/
+# COPY packages/cubejs-client-vue3/ packages/cubejs-client-vue3/
+# COPY packages/cubejs-client-ngx/ packages/cubejs-client-ngx/
+# COPY packages/cubejs-client-ws-transport/ packages/cubejs-client-ws-transport/
+# COPY packages/cubejs-playground/ packages/cubejs-playground/
 
-RUN yarn build
+# RUN yarn build
 RUN yarn lerna run build
 
 RUN find . -name 'node_modules' -type d -prune -exec rm -rf '{}' +

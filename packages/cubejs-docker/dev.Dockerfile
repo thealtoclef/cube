@@ -175,7 +175,7 @@ FROM base AS final
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
-    && apt-get install -y ca-certificates python3.11 libpython3.11-dev \
+    && apt-get install -y ca-certificates python3.11 libpython3.11-dev git \
     && apt-get clean
 
 COPY --from=build /cubejs .
@@ -188,6 +188,12 @@ ENV NODE_PATH /cube/conf/node_modules:/cube/node_modules
 ENV PYTHONUNBUFFERED=1
 RUN ln -s  /cubejs/packages/cubejs-docker /cube
 RUN ln -s  /cubejs/rust/cubestore/bin/cubestore-dev /usr/local/bin/cubestore-dev
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+COPY python /tmp/python
+RUN uv pip install --system --break-system-packages -r /tmp/python/requirements.txt \
+    && uv pip install --system --break-system-packages /tmp/python/packages/* \
+    && rm -rf /tmp/*
 
 WORKDIR /cube/conf
 

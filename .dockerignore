@@ -11,6 +11,7 @@
 !rust/cubestore/package.json
 !rust/cubestore/bin
 !rust/cubesql/package.json
+!python/
 
 # Ignoring builds for native from local machime to protect a problem with different architecture
 packages/cubejs-backend-native/index.node

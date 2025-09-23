@@ -70,6 +70,19 @@ export class CompilerApi {
     return new NativeInstance();
   }
 
+  generateDeterministicCompilerId(compilerVersion) {
+    // Generate deterministic compiler ID from schema version
+    // CompilerApi instances are cached per appId, so compilerVersion is already app-specific
+
+    // Use MD5 hash to generate exactly 16 bytes for UUID
+    // MD5 is fast for short strings and provides good distribution
+    const crypto = require('crypto');
+    const hashBytes = crypto.createHash('md5').update(compilerVersion).digest();
+
+    // Generate UUID v4 with deterministic hash bytes
+    return uuidv4({ random: hashBytes });
+  }
+
   async getCompilers({ requestId } = {}) {
     let compilerVersion = (
       this.schemaVersion && await this.schemaVersion() ||
@@ -119,6 +132,11 @@ export class CompilerApi {
         requestId
       });
 
+      // Generate deterministic compiler ID based on schema version
+      // This ensures consistency across containers for the same schema version
+      // User-specific access permissions are applied via mixInVisibilityMaskHash
+      const deterministicCompilerId = this.generateDeterministicCompilerId(compilerVersion);
+
       const compilers = await compile(this.repository, {
         allowNodeRequire: this.allowNodeRequire,
         compileContext: this.compileContext,
@@ -126,6 +144,7 @@ export class CompilerApi {
         standalone: this.standalone,
         nativeInstance: this.nativeInstance,
         compiledScriptCache: this.compiledScriptCache,
+        compilerId: deterministicCompilerId,
       });
       this.queryFactory = await this.createQueryFactory(compilers);
 

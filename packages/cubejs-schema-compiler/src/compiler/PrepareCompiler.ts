@@ -39,6 +39,7 @@ export type PrepareCompilerOptions = {
   compiledScriptCache?: LRUCache<string, vm.Script>;
   compiledYamlCache?: LRUCache<string, string>;
   compiledJinjaCache?: LRUCache<string, string>;
+  compilerId?: string;
 };
 
 export interface CompilerInterface {
@@ -75,7 +76,7 @@ export const prepareCompiler = (repo: SchemaFileRepository, options: PrepareComp
     transpilers.push(new CubeCheckDuplicatePropTranspiler());
   }
 
-  const compilerId = uuidv4();
+  const compilerId = options.compilerId || uuidv4();
 
   const compiler = new DataSchemaCompiler(repo, {
     cubeNameCompilers: [cubeDictionary],

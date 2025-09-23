@@ -4017,7 +4017,18 @@ export class BaseQuery {
             preAggregation
           );
           return this.paramAllocator.buildSqlAndParams(originalSqlPreAggregationQuery.evaluateSymbolSqlWithContext(
-            () => originalSqlPreAggregationQuery.evaluateSql(cube, this.cubeEvaluator.cubeFromPath(cube).sql),
+            () => {
+              const fromPath = this.cubeEvaluator.cubeFromPath(cube);
+              let sqlToEvaluate;
+              if (fromPath.sqlTable) {
+                // Handle sqlTable: convert to complete SQL statement
+                sqlToEvaluate = () => `SELECT * FROM ${fromPath.sqlTable()}`;
+              } else {
+                // Handle regular sql property
+                sqlToEvaluate = fromPath.sql;
+              }
+              return originalSqlPreAggregationQuery.evaluateSql(cube, sqlToEvaluate);
+            },
             { preAggregationQuery: true, collectOriginalSqlPreAggregations }
           ));
         }

@@ -312,6 +312,7 @@ class ApiGateway {
         context: req.context,
         res: this.resToResultFn(res),
         queryType: req.query.queryType,
+        disableExternalPreAggregations: req.query.disableExternalPreAggregations === 'true',
       });
     }));
 
@@ -321,7 +322,8 @@ class ApiGateway {
         query: req.body.query,
         context: req.context,
         res: this.resToResultFn(res),
-        queryType: req.body.queryType
+        queryType: req.body.queryType,
+        disableExternalPreAggregations: req.body.disableExternalPreAggregations,
       });
     }));
 
@@ -330,7 +332,8 @@ class ApiGateway {
         query: req.query.query,
         context: req.context,
         res: this.resToResultFn(res),
-        queryType: req.query.queryType
+        queryType: req.query.queryType,
+        disableExternalPreAggregations: req.query.disableExternalPreAggregations === 'true',
       });
     }));
 
@@ -1694,6 +1697,7 @@ class ApiGateway {
   private async getSqlQueriesInternal(
     context: RequestContext,
     normalizedQueries: (NormalizedQuery)[],
+    disableExternalPreAggregations?: boolean,
   ): Promise<Array<any>> {
     const sqlQueries = await Promise.all(
       normalizedQueries.map(
@@ -1701,7 +1705,7 @@ class ApiGateway {
           const loadRequestSQLStarted = new Date();
           const sqlQuery = await (await this.getCompilerApi(context))
             .getSql(
-              this.coerceForSqlQuery(normalizedQuery, context)
+              this.coerceForSqlQuery({ ...normalizedQuery, disableExternalPreAggregations }, context)
             );
 
           this.log({
@@ -1958,7 +1962,7 @@ class ApiGateway {
 
       metaConfigResult = this.filterVisibleItemsInMeta(context, metaConfigResult);
 
-      const sqlQueries = await this.getSqlQueriesInternal(context, normalizedQueries);
+      const sqlQueries = await this.getSqlQueriesInternal(context, normalizedQueries, props.disableExternalPreAggregations);
 
       let slowQuery = false;
 
@@ -2093,7 +2097,8 @@ class ApiGateway {
       const sqlQueries = await this
         .getSqlQueriesInternal(
           context,
-          normalizedQueries.map(q => ({ ...q, disableExternalPreAggregations: request.sqlQuery }))
+          normalizedQueries.map(q => ({ ...q, disableExternalPreAggregations: request.sqlQuery })),
+          request.sqlQuery ? undefined : request.disableExternalPreAggregations
         );
 
       let results;

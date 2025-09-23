@@ -142,6 +142,7 @@ type SqlApiRequest = BaseRequest & {
   queryKey: any;
   streaming?: boolean;
   memberExpressions?: boolean;
+  disableExternalPreAggregations?: boolean;
 };
 
 /**

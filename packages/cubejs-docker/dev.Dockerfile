@@ -197,6 +197,9 @@ RUN uv pip install --system --break-system-packages -r /tmp/python/requirements.
 
 WORKDIR /cube/conf
 
+# Create cube.py symlink to git/link/cube.py
+RUN ln -sf git/link/cube.py cube.py
+
 EXPOSE 4000
 
 CMD ["cubejs", "server"]

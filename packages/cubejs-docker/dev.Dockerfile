@@ -200,6 +200,17 @@ WORKDIR /cube/conf
 # Create cube.py symlink to git/link/cube.py
 RUN ln -sf git/link/cube.py cube.py
 
+# Copy the cube.py watcher script
+COPY cube-py-watcher.py /cube/conf/
+
+# Copy the entrypoint script
+COPY docker-entrypoint.sh /cube/conf/
+
+# Make the entrypoint executable
+RUN chmod +x /cube/conf/docker-entrypoint.sh
+
 EXPOSE 4000
+
+ENTRYPOINT ["/cube/conf/docker-entrypoint.sh"]
 
 CMD ["cubejs", "server"]

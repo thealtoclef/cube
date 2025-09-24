@@ -70,14 +70,21 @@ export class CompilerApi {
     return new NativeInstance();
   }
 
-  generateDeterministicCompilerId(compilerVersion) {
-    // Generate deterministic compiler ID from schema version
-    // CompilerApi instances are cached per appId, so compilerVersion is already app-specific
+  generateDeterministicCompilerId(compilerVersion, compileContext) {
+    // Generate deterministic compiler ID from schema version and tenant context
+    // This ensures both consistency across containers for the same schema version
+    // AND proper isolation between different tenants
 
     // Use MD5 hash to generate exactly 16 bytes for UUID
     // MD5 is fast for short strings and provides good distribution
     const crypto = require('crypto');
-    const hashBytes = crypto.createHash('md5').update(compilerVersion).digest();
+
+    // Include tenant context in the hash to ensure tenant isolation
+    // Context and securityContext are always present and securityContext is always an object
+    const hashBytes = crypto.createHash('md5')
+      .update(compilerVersion)
+      .update(JSON.stringify(compileContext.securityContext))
+      .digest();
 
     // Generate UUID v4 with deterministic hash bytes
     return uuidv4({ random: hashBytes });
@@ -132,10 +139,11 @@ export class CompilerApi {
         requestId
       });
 
-      // Generate deterministic compiler ID based on schema version
+      // Generate deterministic compiler ID based on schema version and tenant context
       // This ensures consistency across containers for the same schema version
+      // AND proper isolation between different tenants
       // User-specific access permissions are applied via mixInVisibilityMaskHash
-      const deterministicCompilerId = this.generateDeterministicCompilerId(compilerVersion);
+      const deterministicCompilerId = this.generateDeterministicCompilerId(compilerVersion, this.compileContext);
 
       const compilers = await compile(this.repository, {
         allowNodeRequire: this.allowNodeRequire,

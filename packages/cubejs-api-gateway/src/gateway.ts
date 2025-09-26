@@ -102,7 +102,7 @@ import {
   transformJoins,
   transformPreAggregations,
 } from './helpers/transformMetaExtended';
-import { loadResponseTime, getSQLResultTime, metaResponseTime, preAggregationsResponseTime, cubeSqlResponseTime, dryRunResponseTime } from './metrics';
+import { loadResponseTime, metaResponseTime, preAggregationsResponseTime, cubeSqlResponseTime, dryRunResponseTime } from './metrics';
 
 type HandleErrorOptions = {
     e: any,
@@ -1968,7 +1968,6 @@ class ApiGateway {
 
       const results = await Promise.all(
         normalizedQueries.map(async (normalizedQuery, index) => {
-          const histogramMetric = getSQLResultTime.startTimer();
           slowQuery = slowQuery ||
             Boolean(sqlQueries[index].slowQuery);
 
@@ -1991,19 +1990,6 @@ class ApiGateway {
             response,
             resType,
           );
-          
-          const rootResult = result.getRootResultObject()[0];
-          histogramMetric({
-            tenant: context.securityContext.tenant,
-            api_type: apiType,
-            query_type: queryType,
-            data_source: rootResult.dataSource,
-            db_type: rootResult.dbType,
-            ext_db_type: rootResult.extDbType,
-            external: rootResult.external,
-            slow_query: rootResult.slowQuery ? 'true' : 'false',
-            has_pre_aggregations: Object.keys(rootResult.usedPreAggregations || {}).length > 0 ? 'true' : 'false',
-          });
 
           return result;
         })
@@ -2163,7 +2149,6 @@ class ApiGateway {
       } else {
         results = await Promise.all(
           normalizedQueries.map(async (normalizedQuery, index) => {
-            const histogramMetric = getSQLResultTime.startTimer();
             slowQuery = slowQuery ||
               Boolean(sqlQueries[index].slowQuery);
 
@@ -2190,19 +2175,6 @@ class ApiGateway {
               response,
               resType,
             );
-
-            const rootResult = result.getRootResultObject()[0];
-            histogramMetric({
-              tenant: context.securityContext.tenant,
-              api_type: request.apiType,
-              query_type: queryType,
-              data_source: rootResult.dataSource,
-              db_type: rootResult.dbType,
-              ext_db_type: rootResult.extDbType,
-              external: rootResult.external,
-              slow_query: rootResult.slowQuery ? 'true' : 'false',
-              has_pre_aggregations: Object.keys(rootResult.usedPreAggregations || {}).length > 0 ? 'true' : 'false',
-            });
 
             return result;
           })

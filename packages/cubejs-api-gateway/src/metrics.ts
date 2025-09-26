@@ -45,3 +45,10 @@ export const dryRunResponseTime = new Histogram({
   labelNames: ['tenant', 'method'] as const,
   buckets: API_RESPONSE_BUCKETS
 });
+
+export const queryExecutionTime = new Histogram({
+  name: 'cube_api_query_execution_time',
+  help: 'Duration of actual query execution time in seconds',
+  labelNames: ['tenant', 'data_source', 'external', 'continue_wait', 'db_type', 'pre_aggregations', 'is_job'] as const,
+  buckets: API_RESPONSE_BUCKETS
+});

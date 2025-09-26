@@ -8,7 +8,8 @@ import pLimit from 'p-limit';
 import {
   ApiGateway,
   ApiGatewayOptions,
-  UserBackgroundContext
+  UserBackgroundContext,
+  queryExecutionTime
 } from '@cubejs-backend/api-gateway';
 import {
   CancelableInterval,
@@ -175,6 +176,9 @@ export class CubejsServerCore {
 
   protected contextAcceptor: ContextAcceptor;
 
+  // Request context mapping for metrics tracking
+  protected requestContextMap: Map<string, RequestContext>;
+
   public constructor(
     opts: CreateOptions = {},
     protected readonly systemOptions?: SystemOptions,
@@ -206,6 +210,10 @@ export class CubejsServerCore {
       // needed to clear the setInterval timer for proactive cache internal cleanups
       dispose: (v) => v.dispose(),
     });
+
+    // Request context mapping for metrics tracking
+    // Maps requestId to request context for driver-level callbacks
+    this.requestContextMap = new Map<string, RequestContext>();
 
     if (this.options.contextToAppId) {
       this.contextToAppId = this.options.contextToAppId;
@@ -488,6 +496,7 @@ export class CubejsServerCore {
         contextToApiScopes: this.options.contextToApiScopes,
         gatewayPort: this.options.gatewayPort,
         event: this.event,
+        serverCore: this,
       }
     ));
   }
@@ -727,10 +736,64 @@ export class CubejsServerCore {
     getDriver: DriverFactoryByDataSource,
     options: OrchestratorApiOptions
   ): OrchestratorApi {
+    // Add query completion callback for metrics tracking
+    const orchestratorOptionsWithMetrics = {
+      ...options,
+      onQueryComplete: (query: string, params: unknown[], options: any, duration: number, error?: any) => {
+        // Use queryExecutionTime metric to track actual query execution time
+        // Wrapped in try-catch to ensure metrics never interfere with query processing
+        try {
+          // The options parameter contains the complete QueryBody with execution context
+          // dataSource defaults to 'default' following Cube.js conventions when not explicitly set
+          const labels: any = {
+            data_source: options?.dataSource ?? 'default',
+            external: options?.external ? 'true' : 'false',
+            pre_aggregations: options?.preAggregations?.length > 0 ? 'true' : 'false',
+            is_job: options?.isJob ? 'true' : 'false',
+          };
+
+          // Look up original request context using requestId
+          const requestContext = options?.requestId ? this.retrieveRequestContext(options.requestId) : undefined;
+
+          // Extract tenant from security context if available (from original request context)
+          if (requestContext?.securityContext?.tenant) {
+            labels.tenant = requestContext.securityContext.tenant;
+          } else {
+            labels.tenant = 'unknown';
+          }
+
+          // Clean up the stored context
+          if (options?.requestId) {
+            this.removeRequestContext(options.requestId);
+          }
+
+          // Detect continue wait from error message
+          if (error && error.message === 'Continue wait') {
+            labels.continue_wait = 'true';
+          } else {
+            labels.continue_wait = 'false';
+          }
+
+          // Remove undefined values
+          Object.keys(labels).forEach(key => {
+            if (labels[key] === undefined) {
+              delete labels[key];
+            }
+          });
+
+          queryExecutionTime.observe(labels, duration);
+        } catch (metricsError) {
+          // Silently ignore metrics errors to avoid interfering with query processing
+          // Metrics should never break the actual functionality
+          console.error('Error in metrics callback:', metricsError);
+        }
+      }
+    };
+
     return new OrchestratorApi(
       getDriver,
       this.logger,
-      options
+      orchestratorOptionsWithMetrics
     );
   }
 
@@ -869,6 +932,31 @@ export class CubejsServerCore {
     return this.orchestratorStorage.testConnections();
   }
 
+  /**
+   * Store request context for metrics tracking
+   */
+  public storeRequestContext(requestId: string, context: RequestContext): void {
+    this.requestContextMap.set(requestId, context);
+    // Auto-clean up after 5 minutes to prevent memory leaks
+    setTimeout(() => {
+      this.requestContextMap.delete(requestId);
+    }, 5 * 60 * 1000);
+  }
+
+  /**
+   * Retrieve request context for metrics tracking
+   */
+  public retrieveRequestContext(requestId: string): RequestContext | undefined {
+    return this.requestContextMap.get(requestId);
+  }
+
+  /**
+   * Remove request context when no longer needed
+   */
+  public removeRequestContext(requestId: string): void {
+    this.requestContextMap.delete(requestId);
+  }
+
   public async releaseConnections() {
     await this.orchestratorStorage.releaseConnections();
 
@@ -877,6 +965,7 @@ export class CubejsServerCore {
     }
 
     this.compilerCache.clear();
+    this.requestContextMap.clear();
 
     if (this.scheduledRefreshTimerInterval) {
       await this.scheduledRefreshTimerInterval.cancel();

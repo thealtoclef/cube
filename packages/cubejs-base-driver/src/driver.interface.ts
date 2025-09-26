@@ -160,6 +160,7 @@ export type UnloadOptions = {
 
 export type QueryOptions = {
   inlineTables?: InlineTables,
+  onQueryComplete?: (query: string, params: unknown[], options: QueryOptions, duration: number, error?: any) => void,
   [key: string]: any
 };
 

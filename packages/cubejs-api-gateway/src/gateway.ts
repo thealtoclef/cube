@@ -150,6 +150,8 @@ class ApiGateway {
 
   protected readonly dataSourceStorage: any;
 
+  protected readonly serverCore?: any;
+
   public readonly checkAuthFn: PreparedCheckAuthFn;
 
   public readonly checkAuthSystemFn: PreparedCheckAuthFn;
@@ -190,6 +192,7 @@ class ApiGateway {
     this.standalone = options.standalone;
     this.basePath = options.basePath;
     this.playgroundAuthSecret = options.playgroundAuthSecret;
+    this.serverCore = options.serverCore;
 
     this.queryRewrite = options.queryRewrite || (async (query) => query);
     this.subscriptionStore = options.subscriptionStore || new LocalSubscriptionStore();
@@ -1765,6 +1768,14 @@ class ApiGateway {
         context
       });
     }
+    // Store request context for metrics tracking before executing queries
+    if (this.serverCore && context.requestId) {
+      this.serverCore.storeRequestContext(context.requestId, {
+        securityContext: context.securityContext,
+        requestId: context.requestId
+      });
+    }
+
     const [response, total] = await Promise.all(
       queries.map(async (query) => {
         const res = await (await this.getAdapterApi(context))
@@ -2128,6 +2139,15 @@ class ApiGateway {
           results = [await streamResponse(finalQuery)];
         } else {
           const adapterApi = await this.getAdapterApi(context);
+
+          // Store request context for metrics tracking before executing query
+          if (this.serverCore && context.requestId) {
+            this.serverCore.storeRequestContext(context.requestId, {
+              securityContext: context.securityContext,
+              requestId: context.requestId
+            });
+          }
+
           const response = await adapterApi.executeQuery(finalQuery);
 
           const annotation = prepareAnnotation(

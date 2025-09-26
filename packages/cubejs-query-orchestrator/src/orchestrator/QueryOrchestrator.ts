@@ -36,6 +36,7 @@ export interface QueryOrchestratorOptions {
   rollupOnlyMode?: boolean;
   continueWaitTimeout?: number;
   skipExternalCacheAndQueue?: boolean;
+  onQueryComplete?: (query: string, params: unknown[], options: any, duration: number, error?: any) => void;
 }
 
 function detectQueueAndCacheDriver(options: QueryOrchestratorOptions): CacheAndQueryDriverType {
@@ -110,6 +111,7 @@ export class QueryOrchestrator {
         cubeStoreDriverFactory,
         continueWaitTimeout,
         skipExternalCacheAndQueue,
+        onQueryComplete: options.onQueryComplete,
         ...options.queryCacheOptions,
       }
     );

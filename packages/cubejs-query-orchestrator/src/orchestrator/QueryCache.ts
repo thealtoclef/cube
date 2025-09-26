@@ -118,6 +118,7 @@ export interface QueryCacheOptions {
   cacheAndQueueDriver: CacheAndQueryDriverType;
   maxInMemoryCacheEntries?: number;
   skipExternalCacheAndQueue?: boolean;
+  onQueryComplete?: (query: string, params: unknown[], options: any, duration: number, error?: any) => void;
 }
 
 export class QueryCache {
@@ -233,6 +234,7 @@ export class QueryCache {
           useCsvQuery: queryBody.useCsvQuery,
           lambdaTypes: queryBody.lambdaTypes,
           aliasNameToMember: queryBody.aliasNameToMember,
+          queryBody,
         });
       } else {
         return {
@@ -246,6 +248,7 @@ export class QueryCache {
               dataSource: queryBody.dataSource,
               persistent: queryBody.persistent,
               inlineTables,
+              queryBody,
             }
           ),
         };
@@ -319,6 +322,7 @@ export class QueryCache {
         requestId: queryBody.requestId,
         dataSource: queryBody.dataSource,
         persistent: queryBody.persistent,
+        queryBody,
       }
     );
 
@@ -335,6 +339,7 @@ export class QueryCache {
           requestId: queryBody.requestId,
           dataSource: queryBody.dataSource,
           persistent: queryBody.persistent,
+          queryBody,
         }
       );
     }
@@ -416,6 +421,7 @@ export class QueryCache {
       lambdaTypes,
       persistent,
       aliasNameToMember,
+      queryBody,
     }: {
       cacheKey: CacheKey,
       dataSource: string,
@@ -428,6 +434,7 @@ export class QueryCache {
       lambdaTypes?: TableStructure,
       persistent?: boolean,
       aliasNameToMember?: { [alias: string]: string },
+      queryBody?: QueryBody,
     }
   ) {
     const queue = external
@@ -442,6 +449,8 @@ export class QueryCache {
       inlineTables,
       useCsvQuery,
       lambdaTypes,
+      // Include all original QueryBody properties for metrics and context
+      ...(queryBody || {}),
     };
 
     const opt = {
@@ -469,10 +478,15 @@ export class QueryCache {
           () => this.driverFactory(dataSource),
           (client, req) => {
             this.logger('Executing SQL', { ...req });
+            // Inject the query completion callback into the request options
+            const enhancedReq = {
+              ...req,
+              onQueryComplete: this.options.onQueryComplete
+            };
             if (req.useCsvQuery) {
-              return this.csvQuery(client, req);
+              return this.csvQuery(client, enhancedReq);
             } else {
-              return client.query(req.query, req.values, req);
+              return client.queryWithCallback(req.query, req.values, enhancedReq);
             }
           },
           {
@@ -539,7 +553,12 @@ export class QueryCache {
           this.logger('Executing SQL', {
             ...q
           });
-          return client.query(q.query, q.values, q);
+          // Inject the query completion callback into the request options
+          const enhancedQ = {
+            ...q,
+            onQueryComplete: this.options.onQueryComplete
+          };
+          return client.queryWithCallback(enhancedQ.query, enhancedQ.values, enhancedQ);
         },
         {
           logger: this.logger,
@@ -708,6 +727,7 @@ export class QueryCache {
       external?: boolean,
       dataSource: string,
       persistent?: boolean,
+      queryBody?: QueryBody,
     }
   ) {
     this.renewQuery(
@@ -858,6 +878,7 @@ export class QueryCache {
       persistent?: boolean,
       primaryQuery?: boolean,
       renewCycle?: boolean,
+      queryBody?: QueryBody,
     }
   ) {
     const spanId = crypto.randomBytes(16).toString('hex');
@@ -876,6 +897,7 @@ export class QueryCache {
         dataSource: options.dataSource,
         useCsvQuery: options.useCsvQuery,
         lambdaTypes: options.lambdaTypes,
+        queryBody: options.queryBody,
       }).then(res => {
         const result = {
           time: (new Date()).getTime(),

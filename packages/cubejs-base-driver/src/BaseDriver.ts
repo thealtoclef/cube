@@ -925,4 +925,42 @@ export abstract class BaseDriver implements DriverInterface {
 
     return csvFiles;
   }
+
+  /**
+   * Wrapper method that implements query execution with callback support.
+   * This method tracks execution time and calls the onQueryComplete callback if provided.
+   */
+  public async queryWithCallback<R = unknown>(
+    query: string,
+    params: unknown[],
+    options?: QueryOptions
+  ): Promise<R[]> {
+    const startTime = Date.now();
+    let result: R[];
+    let error: any;
+
+    try {
+      result = await this.query(query, params, options);
+      return result;
+    } catch (e) {
+      error = e;
+      throw e;
+    } finally {
+      const duration = (Date.now() - startTime) / 1000; // Convert to seconds
+      if (options?.onQueryComplete) {
+        try {
+          options.onQueryComplete(query, params, options, duration, error);
+        } catch (callbackError: any) {
+          // Silently ignore callback errors to avoid interfering with query processing
+          if (this.logger) {
+            this.logger('Error in query completion callback', {
+              error: callbackError?.message || callbackError,
+              query: query.substring(0, 100), // Log first 100 chars of query
+              duration
+            });
+          }
+        }
+      }
+    }
+  }
 }

@@ -127,6 +127,7 @@ const schemaOptions = Joi.object().keys({
         maxPartitions: Joi.number(),
       },
       rollupOnlyMode: Joi.boolean(),
+      fallbackToDataSource: Joi.boolean(),
       testConnectionTimeout: Joi.number().min(0).integer(),
     })
   ),

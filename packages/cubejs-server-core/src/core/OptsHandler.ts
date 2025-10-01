@@ -664,6 +664,11 @@ export class OptsHandler {
       ? clone.rollupOnlyMode
       : getEnv('rollupOnlyMode');
 
+    // Fallback to data source when pre-aggregation queries fail
+    clone.fallbackToDataSource = clone.fallbackToDataSource !== undefined
+      ? clone.fallbackToDataSource
+      : getEnv('fallbackToDataSource');
+
     // query queue options
     clone.queryCacheOptions = clone.queryCacheOptions || {};
     clone.queryCacheOptions.queueOptions = this.queueOptionsWrapper(

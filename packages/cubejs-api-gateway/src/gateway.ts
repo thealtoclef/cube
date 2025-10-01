@@ -1727,6 +1727,63 @@ class ApiGateway {
     normalizedQuery: NormalizedQuery,
     sqlQuery: any,
   ): Promise<ResultWrapper> {
+    try {
+      return await this._getSqlResponseInternal(context, normalizedQuery, sqlQuery);
+    } catch (error: any) {
+      // Continue wait is normal behavior and should not trigger fallback
+      // Note: Continue wait errors are plain objects { error: 'Continue wait', stage: ... }
+      // thrown by OrchestratorApi.executeQuery
+      if (error.error === 'Continue wait') {
+        throw error;
+      }
+
+      const adapterApi = await this.getAdapterApi(context);
+      const orchestrator = adapterApi.getQueryOrchestrator();
+
+      // Trigger fallback to data source if:
+      // 1. fallbackToDataSource is enabled (configuration setting)
+      // 2. User did not explicitly disable pre-aggregations in the query
+      // 3. External pre-aggregations were not disabled
+      // 4. The query is actually using pre-aggregations (sqlQuery.preAggregations array has items)
+      const shouldFallbackToDataSource =
+        orchestrator &&
+        orchestrator.getFallbackToDataSource() &&
+        !normalizedQuery.disablePreAggregations &&
+        !sqlQuery.disableExternalPreAggregations &&
+        sqlQuery.preAggregations?.length > 0;
+
+      if (shouldFallbackToDataSource) {
+        this.log({
+          type: 'Fallback To Data Source',
+          error: error.error,
+          normalizedQuery,
+          sqlQuery,
+        }, context);
+
+        // Generate new SQL query with pre-aggregations disabled
+        const fallbackNormalizedQuery = { ...normalizedQuery, disablePreAggregations: true };
+        const [fallbackSqlQuery] = await this.getSqlQueriesInternal(
+          context,
+          [fallbackNormalizedQuery],
+        );
+
+        // Execute the fallback query
+        return await this._getSqlResponseInternal(context, fallbackNormalizedQuery, fallbackSqlQuery);
+      }
+      // If fallback is not enabled or not applicable, re-throw the original error
+      throw error;
+    }
+  }
+
+  /**
+   * Internal implementation of getSqlResponseInternal.
+   * @internal
+   */
+  private async _getSqlResponseInternal(
+    context: RequestContext,
+    normalizedQuery: NormalizedQuery,
+    sqlQuery: any,
+  ): Promise<ResultWrapper> {
     const queries = [{
       ...sqlQuery,
       query: sqlQuery.sql[0],

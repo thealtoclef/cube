@@ -151,6 +151,9 @@ const variables: Record<string, (...args: any) => any> = {
   rollupOnlyMode: () => get('CUBEJS_ROLLUP_ONLY')
     .default('false')
     .asBoolStrict(),
+  fallbackToDataSource: () => get('CUBEJS_FALLBACK_TO_DATA_SOURCE')
+    .default('false')
+    .asBoolStrict(),
   schemaPath: () => get('CUBEJS_SCHEMA_PATH')
     .default('model')
     .asString(),

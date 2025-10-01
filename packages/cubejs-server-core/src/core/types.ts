@@ -47,6 +47,7 @@ export interface OrchestratorOptions {
   queryCacheOptions?: QueryCacheOptions;
   preAggregationsOptions?: PreAggregationsOptions;
   rollupOnlyMode?: boolean;
+  fallbackToDataSource?: boolean;
   testConnectionTimeout?: number;
 }
 
@@ -75,6 +76,7 @@ export interface OrchestratorInitedOptions {
   preAggregationsOptions: AggsInitedOptions;
   redisPrefix?: string;
   rollupOnlyMode?: boolean;
+  fallbackToDataSource?: boolean;
   testConnectionTimeout?: number;
 }
 

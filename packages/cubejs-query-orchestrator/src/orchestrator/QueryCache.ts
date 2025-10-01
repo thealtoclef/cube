@@ -61,6 +61,7 @@ export type QueryBody = {
   external?: boolean;
   isJob?: boolean;
   forceNoCache?: boolean;
+  disablePreAggregations?: boolean;
   preAggregations?: PreAggregationDescription[];
   groupedPartitionPreAggregations?: PreAggregationDescription[][];
   aliasNameToMember?: {

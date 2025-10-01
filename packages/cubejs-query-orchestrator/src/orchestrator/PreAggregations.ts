@@ -453,6 +453,14 @@ export class PreAggregations {
     preAggregationsTablesToTempTables: PreAggTableToTempTable[],
     values: null | string[],
   }> {
+    // If pre-aggregations are disabled, return empty results
+    if (queryBody.disablePreAggregations) {
+      return {
+        preAggregationsTablesToTempTables: [],
+        values: null,
+      };
+    }
+
     const preAggregations = queryBody.preAggregations || [];
 
     const loadCacheByDataSource = queryBody.preAggregationsLoadCacheByDataSource || {};

@@ -142,6 +142,7 @@ interface Query {
   renewQuery?: boolean;
   ungrouped?: boolean;
   responseFormat?: ResultType;
+  disablePreAggregations?: boolean;
 
   // TODO incoming query, query with parsed exprs and query with evaluated exprs are all different types
   subqueryJoins?: Array<SubqueryJoins>,

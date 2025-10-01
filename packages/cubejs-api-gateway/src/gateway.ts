@@ -1701,7 +1701,7 @@ class ApiGateway {
           const loadRequestSQLStarted = new Date();
           const sqlQuery = await (await this.getCompilerApi(context))
             .getSql(
-              this.coerceForSqlQuery(normalizedQuery, context)
+              this.coerceForSqlQuery({ ...normalizedQuery, disableExternalPreAggregations: normalizedQuery.disablePreAggregations }, context)
             );
 
           this.log({
@@ -1733,6 +1733,7 @@ class ApiGateway {
       values: sqlQuery.sql[1],
       continueWait: true,
       renewQuery: normalizedQuery.renewQuery,
+      disablePreAggregations: normalizedQuery.disablePreAggregations,
       requestId: context.requestId,
       context,
       persistent: false,
@@ -1757,6 +1758,7 @@ class ApiGateway {
         values: totalQuery.sql[1],
         continueWait: true,
         renewQuery: normalizedTotal.renewQuery,
+        disablePreAggregations: normalizedTotal.disablePreAggregations,
         requestId: context.requestId,
         context
       });

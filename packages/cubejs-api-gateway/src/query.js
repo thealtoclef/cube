@@ -190,6 +190,7 @@ const querySchema = Joi.object().keys({
   renewQuery: Joi.boolean(),
   ungrouped: Joi.boolean(),
   responseFormat: Joi.valid('default', 'compact'),
+  disablePreAggregations: Joi.boolean(),
   subqueryJoins: Joi.array().items(subqueryJoin),
   joinHints: Joi.array().items(joinHint),
 });

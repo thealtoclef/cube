@@ -1,12 +1,29 @@
-# Query Execution Time Metrics
+# Cube Metrics Monitoring Guide
 
-**Location**: `docs/operational-guides/query-metrics.md`
+**Location**: `docs/operational-guides/metrics-guide.md`
 
 ## Overview
 
-This implementation tracks query execution time with proper tenant attribution using Prometheus metrics. The system automatically records the duration of every **actual query execution** through Cube, labeled with relevant metadata including tenant, data source, and query characteristics.
+Cube exports comprehensive Prometheus metrics tracking both API-level performance and database-level query execution. This guide covers **all 6 Cube metrics** with implementation details, monitoring strategies, and production-ready alert configurations.
 
-**Important**: This metric tracks only actual database query executions. HTTP-level cached responses (from `cachedHandler` with ~1s TTL) are not tracked as they don't involve query execution. QueryCache hits that still execute queries are tracked normally.
+### Available Metrics
+
+| Metric | Type | Level | Status |
+|--------|------|-------|--------|
+| `cube_api_load_response_time` | Histogram | API | ✅ Active |
+| `cube_query_execution_time` | Histogram | Database | ✅ Active |
+| `cube_api_meta_response_time` | Histogram | API | ✅ Active |
+| `cube_api_pre_aggregations_response_time` | Histogram | API | ✅ Active |
+| `cube_api_cubesql_response_time` | Histogram | API | ✅ Active |
+| `cube_api_dry_run_response_time` | Histogram | API | ✅ Active |
+
+**Key Characteristics**:
+- **Prometheus format**: Metrics exported at `/metrics` endpoint
+- **Tenant isolation**: Most metrics include tenant label for multi-tenant monitoring
+- **AsyncLocalStorage**: Context propagation across async operations
+- **Histogram buckets**: Optimized for 0.01s to 120s range
+
+**Important**: `cube_query_execution_time` tracks only actual database query executions. HTTP-level cached responses (from `cachedHandler` with ~1s TTL) are not tracked as they don't involve query execution.
 
 ## Architecture
 
@@ -39,55 +56,207 @@ Metric recorded with labels (including tenant from context)
 AsyncLocalStorage automatically cleans up when execution completes
 ```
 
-## Metrics Exposed
+## Metrics Reference
 
-### `cube_query_execution_time`
+### 1. Load Response Time (Primary API Metric)
+
+#### `cube_api_load_response_time`
 
 **Type**: Histogram
 
-**Description**: Tracks all SQL query executions at the sub-query level within Cube's query orchestrator
+**Description**: End-to-end duration of `/load` and `/subscribe` API requests. This is your **primary SLA metric** - it measures what users actually experience.
+
+**What it includes**:
+- Query parsing and validation
+- Schema compilation
+- Query planning
+- Database execution
+- Data transformation
+- Response serialization
+- HTTP caching layer (if hit)
 
 **Labels**:
-The metric includes the following labels to enable detailed analysis:
-
-- `tenant`: Extracted from `securityContext.tenant` in the JWT token via AsyncLocalStorage
-- `data_source`: From query options (`opts.dataSource`), defaults to "default" if not specified
-- `external`: From query options (`opts.external`), "true" if query uses CubeStore/external data source, "false" otherwise
-- `has_error`: "true" if query execution encountered an error, "false" otherwise
-
-**Important Note**: This metric tracks **individual sub-query executions**, not API-level requests. A single API call typically generates multiple sub-queries (main query + refresh key queries). Some sub-queries may hit cache while others execute, so cache metrics at this level don't reflect the overall API request behavior.
-
-**Key Patterns**:
-- **External queries (CubeStore)**: `external="true"`
-- **Source database queries**: `external="false"`
-- **Errors**: `has_error="true"`
+- `tenant`: Tenant identifier extracted from JWT (`securityContext.tenant`)
+- `api_type`: API interface - `"rest"` or `"graphql"`
+- `query_type`: Query classification:
+  - `"regularQuery"`: Standard data query
+  - `"compareDateRangeQuery"`: Date range comparison query
+  - `"blendingQuery"`: Blended/joined query across cubes
+- `slow_query`: `"true"` if query is identified as slow, `"false"` otherwise
+- `multi_query`: `"true"` for multi-query requests, `"false"` for single query
+- `query_count`: Number of queries in request (as string: `"1"`, `"2"`, `"3"`, etc.)
+- `is_playground`: `"true"` if request from Cube Playground, `"false"` for production
 
 **Use Cases**:
-1. Monitor query execution performance across different data sources
-2. Identify slow queries by external/internal classification
-3. Monitor error rates by tenant and data source
-4. Analyze performance differences between source DB and CubeStore queries
+- ✅ Monitor overall API performance and SLA compliance
+- ✅ Identify slow queries affecting user experience
+- ✅ Track multi-query vs single-query performance differences
+- ✅ Distinguish playground usage from production traffic
+- ✅ Analyze query type performance characteristics
 
-**Histogram Buckets**: Configured in `packages/cubejs-api-gateway/src/metrics.ts` using `API_RESPONSE_BUCKETS`. Buckets are optimized for typical query execution times and may be adjusted based on production metrics.
+**Alert Thresholds**:
+- Warning: p95 > 5s
+- Critical: p95 > 30s
 
-### `cube_api_load_response_time`
+---
+
+### 2. Query Execution Time (Database Level)
+
+#### `cube_query_execution_time`
 
 **Type**: Histogram
 
-**Description**: Duration of load endpoint API response time in seconds
+**Description**: Duration of individual SQL queries at the database level. **Important**: One API request generates multiple sub-queries.
+
+**What it tracks**:
+- Each individual SELECT/INSERT/UPDATE statement
+- Refresh key queries
+- Metadata queries
+- Pre-aggregation check queries
+
+**Labels**:
+- `tenant`: Extracted from `securityContext.tenant` via AsyncLocalStorage
+- `data_source`: From query options (`opts.dataSource`), defaults to `"default"`
+- `external`: Query routing indicator:
+  - `"true"`: Query executed against CubeStore/external data source
+  - `"false"`: Query executed against source database
+- `has_error`: Query execution result:
+  - `"true"`: Query encountered an error
+  - `"false"`: Query executed successfully
+
+**Relationship to API metric**:
+```
+1 API Request (/load) → Multiple sub-queries:
+  ├─ cube_api_load_response_time: 5.2s (total)
+  └─ cube_query_execution_time:
+       ├─ Main query: 3.1s (external=false)
+       ├─ Refresh key: 0.05s (external=false)
+       ├─ Pre-agg check: 0.03s (external=true)
+       └─ Metadata query: 0.02s (external=false)
+```
+
+**Use Cases**:
+1. Monitor actual database query performance (excluding HTTP/API overhead)
+2. Compare CubeStore vs source database query performance
+3. Track error rates at the database query level
+4. Identify database-level bottlenecks
+5. Monitor query retry patterns
+
+**Important Note**: This metric tracks **individual sub-query executions**, not API-level requests. A single API call typically generates multiple sub-queries. Some sub-queries may hit cache while others execute.
+
+**Alert Thresholds**:
+- Warning: p95 > 10s
+- Critical: p95 > 30s
+- Error rate > 5% per tenant
+
+---
+
+### 3. Meta Response Time
+
+#### `cube_api_meta_response_time`
+
+**Type**: Histogram
+
+**Description**: Duration of metadata endpoint (`/v1/meta`) responses in seconds. Tracks time to retrieve and return cube schema metadata.
+
+**When recorded**: For every `/v1/meta` API request
 
 **Labels**:
 - `tenant`: Tenant identifier from JWT
-- `api_type`: API type (e.g., "rest", "graphql")
-- `query_type`: Query type (e.g., "single", "multi")
-- `slow_query`: "true" for slow queries, "false" otherwise
-- `multi_query`: "true" for multi-query requests, "false" otherwise
-- `query_count`: Number of queries in the request
-- `is_playground`: "true" if request is from playground, "false" otherwise
+- `endpoint`: Always `"meta"` (for future extensibility)
+- `extended`: Schema detail level:
+  - `"true"`: Extended metadata requested (`/v1/meta?extended`)
+  - `"false"`: Standard metadata
 
-**Note**: This tracks the full API response time including all processing, not just query execution.
+**Use Cases**:
+- Monitor metadata service health
+- Track impact of schema complexity on metadata retrieval
+- Identify tenants with slow schema loading
+- Optimize schema caching strategies
 
-### Example Output
+**Alert Thresholds**:
+- Standard metadata: p95 > 1s
+- Extended metadata: p95 > 3s
+
+---
+
+### 4. Pre-Aggregations Response Time
+
+#### `cube_api_pre_aggregations_response_time`
+
+**Type**: Histogram
+
+**Description**: Duration of pre-aggregations management endpoint responses. Tracks operations like checking pre-aggregation usability and managing build jobs.
+
+**When recorded**: For `/v1/pre-aggregations/can-use` and `/v1/pre-aggregations/jobs` requests
+
+**Labels**:
+- `tenant`: Tenant identifier from JWT
+- `endpoint`: Pre-aggregations operation type:
+  - `"can-use"`: Checks if query can use pre-aggregations
+  - `"jobs"`: Pre-aggregation job management operations
+
+**Use Cases**:
+- Monitor pre-aggregation build performance
+- Track pre-aggregation management overhead
+- Identify issues with pre-aggregation metadata queries
+- Optimize Rollup Designer performance
+
+**Alert Thresholds**:
+- `can-use`: p95 > 500ms
+- `jobs`: p95 > 2s
+
+---
+
+### 5. CubeSQL Response Time
+
+#### `cube_api_cubesql_response_time`
+
+**Type**: Histogram
+
+**Description**: Duration of CubeSQL endpoint (`/v1/cubesql`) responses. Tracks SQL API queries that use Cube's SQL interface.
+
+**When recorded**: For every `/v1/cubesql` API request
+
+**Labels**:
+- `tenant`: Tenant identifier from JWT
+
+**When Used**:
+- SQL clients (e.g., Tableau, Metabase)
+- JDBC/ODBC connections
+- Direct SQL queries to Cube
+
+**Alert Thresholds**: p95 > 5s
+
+---
+
+### 6. Dry Run Response Time
+
+#### `cube_api_dry_run_response_time`
+
+**Type**: Histogram
+
+**Description**: Duration of dry-run endpoint responses. Tracks query validation and SQL generation without execution.
+
+**When recorded**: For every `/v1/dry-run` API request (GET and POST methods)
+
+**Labels**:
+- `tenant`: Tenant identifier from JWT
+- `method`: HTTP method used:
+  - `"GET"`: Query passed as query parameter
+  - `"POST"`: Query passed in request body
+
+**Use Cases**:
+- Monitor query compilation performance
+- Track SQL generation overhead
+- Identify complex query patterns affecting compilation
+- Optimize development workflow (Playground, IDE tools)
+
+**Alert Thresholds**: p95 > 1s
+
+---
+
+## Example Prometheus Output
 
 ```prometheus
 # Example: Source database query

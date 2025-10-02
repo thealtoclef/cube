@@ -119,6 +119,7 @@ export interface QueryCacheOptions {
   cacheAndQueueDriver: CacheAndQueryDriverType;
   maxInMemoryCacheEntries?: number;
   skipExternalCacheAndQueue?: boolean;
+  onQueryComplete?: (query: string, values: any[], opts: any, duration: number, error?: any) => void;
 }
 
 export class QueryCache {
@@ -320,6 +321,7 @@ export class QueryCache {
         requestId: queryBody.requestId,
         dataSource: queryBody.dataSource,
         persistent: queryBody.persistent,
+        isJob: queryBody.isJob,
       }
     );
 
@@ -443,6 +445,8 @@ export class QueryCache {
       inlineTables,
       useCsvQuery,
       lambdaTypes,
+      dataSource,
+      external,
     };
 
     const opt = {
@@ -470,11 +474,55 @@ export class QueryCache {
           () => this.driverFactory(dataSource),
           (client, req) => {
             this.logger('Executing SQL', { ...req });
+
+            // Track timing and invoke callback WITHOUT interfering with promise chain
+            const startTime = Date.now();
+            let queryPromise: Promise<any>;
+            
             if (req.useCsvQuery) {
-              return this.csvQuery(client, req);
+              queryPromise = this.csvQuery(client, req);
             } else {
-              return client.query(req.query, req.values, req);
+              queryPromise = client.query(req.query, req.values, req);
             }
+
+            // Invoke query completion callback for metrics tracking
+            // This uses setImmediate to decouple callback execution from the query promise chain,
+            // ensuring metrics recording never interferes with Cube's internal promise handling
+            // (critical for pre-aggregation functionality).
+            if (this.options.onQueryComplete) {
+              const callback = this.options.onQueryComplete;
+
+              // Observe promise settlement separately without attaching handlers to the returned promise
+              Promise.resolve(queryPromise).then(
+                () => {
+                  const duration = (Date.now() - startTime) / 1000;
+                  setImmediate(() => {
+                    try {
+                      callback(req.query, req.values, req, duration, undefined);
+                    } catch (callbackError) {
+                      this.logger('Error in query completion callback', {
+                        error: (callbackError as any)?.message || callbackError
+                      });
+                    }
+                  });
+                },
+                (error) => {
+                  const duration = (Date.now() - startTime) / 1000;
+                  setImmediate(() => {
+                    try {
+                      callback(req.query, req.values, req, duration, error);
+                    } catch (callbackError) {
+                      this.logger('Error in query completion callback', {
+                        error: (callbackError as any)?.message || callbackError
+                      });
+                    }
+                  });
+                }
+              );
+            }
+
+            // Return the original promise untouched to preserve pre-aggregation behavior
+            return queryPromise;
           },
           {
             logger: this.logger,
@@ -537,10 +585,47 @@ export class QueryCache {
         `SQL_QUERY_EXT_${this.cachePrefix}`,
         this.options.externalDriverFactory,
         (client, q) => {
-          this.logger('Executing SQL', {
-            ...q
-          });
-          return client.query(q.query, q.values, q);
+          this.logger('Executing SQL', { ...q });
+
+          // Track timing and invoke callback without interfering with promise chain
+          const startTime = Date.now();
+          const queryPromise = client.query(q.query, q.values, q);
+
+          // Schedule callback invocation without attaching to the promise chain
+          if (this.options.onQueryComplete) {
+            const callback = this.options.onQueryComplete;
+            
+            // Observe promise settlement separately from the returned promise
+            Promise.resolve(queryPromise).then(
+              () => {
+                const duration = (Date.now() - startTime) / 1000;
+                setImmediate(() => {
+                  try {
+                    callback(q.query, q.values, q, duration, undefined);
+                  } catch (callbackError) {
+                    this.logger('Error in query completion callback', {
+                      error: (callbackError as any)?.message || callbackError
+                    });
+                  }
+                });
+              },
+              (error) => {
+                const duration = (Date.now() - startTime) / 1000;
+                setImmediate(() => {
+                  try {
+                    callback(q.query, q.values, q, duration, error);
+                  } catch (callbackError) {
+                    this.logger('Error in query completion callback', {
+                      error: (callbackError as any)?.message || callbackError
+                    });
+                  }
+                });
+              }
+            );
+          }
+
+          // Return the ORIGINAL promise untouched
+          return queryPromise;
         },
         {
           logger: this.logger,
@@ -859,6 +944,7 @@ export class QueryCache {
       persistent?: boolean,
       primaryQuery?: boolean,
       renewCycle?: boolean,
+      isJob?: boolean,
     }
   ) {
     const spanId = crypto.randomBytes(16).toString('hex');

@@ -4,11 +4,13 @@ import fs from 'fs-extra';
 import { LRUCache } from 'lru-cache';
 import isDocker from 'is-docker';
 import pLimit from 'p-limit';
+import { AsyncLocalStorage } from 'async_hooks';
 
 import {
   ApiGateway,
   ApiGatewayOptions,
-  UserBackgroundContext
+  UserBackgroundContext,
+  queryExecutionTime
 } from '@cubejs-backend/api-gateway';
 import {
   CancelableInterval,
@@ -175,6 +177,8 @@ export class CubejsServerCore {
 
   protected contextAcceptor: ContextAcceptor;
 
+  protected requestContextStorage: AsyncLocalStorage<RequestContext>;
+
   public constructor(
     opts: CreateOptions = {},
     protected readonly systemOptions?: SystemOptions,
@@ -206,6 +210,8 @@ export class CubejsServerCore {
       // needed to clear the setInterval timer for proactive cache internal cleanups
       dispose: (v) => v.dispose(),
     });
+
+    this.requestContextStorage = new AsyncLocalStorage<RequestContext>();
 
     if (this.options.contextToAppId) {
       this.contextToAppId = this.options.contextToAppId;
@@ -488,6 +494,7 @@ export class CubejsServerCore {
         contextToApiScopes: this.options.contextToApiScopes,
         gatewayPort: this.options.gatewayPort,
         event: this.event,
+        serverCore: this,
       }
     ));
   }
@@ -727,10 +734,41 @@ export class CubejsServerCore {
     getDriver: DriverFactoryByDataSource,
     options: OrchestratorApiOptions
   ): OrchestratorApi {
+    // Add query execution and cache callbacks for metrics tracking
+    const orchestratorOptionsWithMetrics: OrchestratorApiOptions = {
+      ...options,
+      queryCacheOptions: {
+        ...(options.queryCacheOptions || {}),
+        onQueryComplete: (query: string, values: any[], opts: any, duration: number, error?: any) => {
+          try {
+            // Extract tenant from AsyncLocalStorage context
+            const storedContext = this.requestContextStorage.getStore();
+            const tenant = storedContext?.securityContext?.tenant || 'unknown';
+
+            // Query execution metric
+            const queryLabels: any = {
+              tenant,
+              data_source: opts?.dataSource ?? 'default',
+              external: opts?.external ? 'true' : 'false',
+              has_error: error ? 'true' : 'false',
+            };
+
+            queryExecutionTime.observe(queryLabels, duration);
+          } catch (metricsError) {
+            // Log metrics errors but never interfere with query processing
+            this.logger('Query metrics recording error', {
+              error: (metricsError as any)?.message || metricsError,
+              requestId: opts?.requestId,
+            });
+          }
+        }
+      }
+    };
+
     return new OrchestratorApi(
       getDriver,
       this.logger,
-      options
+      orchestratorOptionsWithMetrics
     );
   }
 
@@ -867,6 +905,21 @@ export class CubejsServerCore {
 
   public async testConnections() {
     return this.orchestratorStorage.testConnections();
+  }
+
+  /**
+   * Executes a function within an AsyncLocalStorage context.
+   * This enables tenant and request information to be automatically
+   * available throughout the async execution chain without explicit passing.
+   * 
+   * Used for tracking query execution metrics with proper tenant attribution.
+   * 
+   * @param context - Request context containing security context and request ID
+   * @param fn - Async function to execute within the context
+   * @returns Promise resolving to the function's return value
+   */
+  public async executeWithContext<T>(context: RequestContext, fn: () => Promise<T>): Promise<T> {
+    return this.requestContextStorage.run(context, fn);
   }
 
   public async releaseConnections() {

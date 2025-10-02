@@ -150,6 +150,8 @@ class ApiGateway {
 
   protected readonly dataSourceStorage: any;
 
+  protected readonly serverCore?: any;
+
   public readonly checkAuthFn: PreparedCheckAuthFn;
 
   public readonly checkAuthSystemFn: PreparedCheckAuthFn;
@@ -190,6 +192,7 @@ class ApiGateway {
     this.standalone = options.standalone;
     this.basePath = options.basePath;
     this.playgroundAuthSecret = options.playgroundAuthSecret;
+    this.serverCore = options.serverCore;
 
     this.queryRewrite = options.queryRewrite || (async (query) => query);
     this.subscriptionStore = options.subscriptionStore || new LocalSubscriptionStore();
@@ -1820,13 +1823,25 @@ class ApiGateway {
         context
       });
     }
-    const [response, total] = await Promise.all(
-      queries.map(async (query) => {
-        const res = await (await this.getAdapterApi(context))
-          .executeQuery(query);
-        return res;
-      })
-    );
+
+    // Wrap query execution with AsyncLocalStorage context for metrics tracking
+    const executeQueries = async () => {
+      const [response, total] = await Promise.all(
+        queries.map(async (query) => {
+          const res = await (await this.getAdapterApi(context))
+            .executeQuery(query);
+          return res;
+        })
+      );
+      return [response, total];
+    };
+
+    const [response, total] = this.serverCore
+      ? await this.serverCore.executeWithContext({
+        securityContext: context.securityContext,
+        requestId: context.requestId
+      }, executeQueries)
+      : await executeQueries();
     response.total = normalizedQuery.total
       ? Number(total.data[0][QueryAlias.TOTAL_COUNT])
       : undefined;
@@ -2182,7 +2197,16 @@ class ApiGateway {
           results = [await streamResponse(finalQuery)];
         } else {
           const adapterApi = await this.getAdapterApi(context);
-          const response = await adapterApi.executeQuery(finalQuery);
+
+          // Wrap query execution with AsyncLocalStorage context for metrics tracking
+          const executeQuery = async () => adapterApi.executeQuery(finalQuery);
+
+          const response = this.serverCore
+            ? await this.serverCore.executeWithContext({
+              securityContext: context.securityContext,
+              requestId: context.requestId
+            }, executeQuery)
+            : await executeQuery();
 
           const annotation = prepareAnnotation(
             metaConfigResult, normalizedQueries[0]
@@ -2196,9 +2220,15 @@ class ApiGateway {
         }
 
         await res(request.streaming ? results[0] : { results });
+        // Note: For SQL API with direct sqlQuery, query_type/multi_query/query_count are always the same
         histogramMetric({
           tenant: context.securityContext.tenant,
           api_type: request.apiType,
+          query_type: 'single', // SQL API always processes single query
+          slow_query: sqlQueries[0]?.slowQuery ? 'true' : 'false',
+          multi_query: 'false', // SQL API doesn't support multi-query
+          query_count: '1', // Always 1 for SQL API direct query
+          is_playground: context.signedWithPlaygroundAuthSecret ? 'true' : 'false',
         });
       } else {
         results = await Promise.all(

@@ -1,4 +1,4 @@
-import { Histogram } from 'prom-client';
+import { Histogram, Counter } from 'prom-client';
 
 // Unified histogram buckets for all API metrics
 // Optimized distribution: tight in 10-30s range, loose in 30-60s, coarse in 60-120s
@@ -43,5 +43,12 @@ export const dryRunResponseTime = new Histogram({
   name: 'cube_api_dry_run_response_time',
   help: 'Duration of dry-run endpoint response in seconds',
   labelNames: ['tenant', 'method'] as const,
+  buckets: API_RESPONSE_BUCKETS
+});
+
+export const queryExecutionTime = new Histogram({
+  name: 'cube_query_execution_time',
+  help: 'Duration of actual query execution time in seconds',
+  labelNames: ['tenant', 'data_source', 'external', 'has_error'] as const,
   buckets: API_RESPONSE_BUCKETS
 });

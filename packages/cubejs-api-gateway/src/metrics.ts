@@ -11,13 +11,6 @@ export const loadResponseTime = new Histogram({
   buckets: API_RESPONSE_BUCKETS
 });
 
-export const getSQLResultTime = new Histogram({
-  name: 'cube_api_get_sql_result_time',
-  help: 'Duration of get SQL result phase in seconds',
-  labelNames: ['tenant', 'api_type', 'query_type', 'data_source', 'db_type', 'ext_db_type', 'external', 'slow_query', 'has_pre_aggregations'] as const,
-  buckets: API_RESPONSE_BUCKETS
-});
-
 export const metaResponseTime = new Histogram({
   name: 'cube_api_meta_response_time',
   help: 'Duration of meta endpoint response in seconds',

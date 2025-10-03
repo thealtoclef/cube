@@ -92,8 +92,26 @@ export class CubejsServer {
         throw new Error('CubeServer is already listening');
       }
 
-      // Optimized distribution: tight in 10-30s range, loose in 30-60s, coarse in 60-120s
-      const API_RESPONSE_BUCKETS = [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 1.5, 2, 2.5, 3, 4, 5, 7.5, 10, 12.5, 15, 20, 25, 30, 40, 50, 60, 90, 120];
+      // HTTP request buckets for express-prom-bundle
+      // Optimized for continue wait mechanism (default 5s, max 10s per poll)
+      // Total request time up to 30s (continue wait + compilation + retries)
+      //
+      // PROMETHEUS INDUSTRY STANDARDS:
+      // - Recommended: 10-15 buckets for most applications
+      // - Upper limit: 20-30 buckets for high-precision monitoring
+      // - Best practice: Focus granularity on SLO ranges (1-10s for us)
+      // - Use exponential growth to balance accuracy vs cardinality
+      // - Reference: https://prometheus.io/docs/practices/histograms/
+      //
+      // Our configuration: 21 buckets (within recommended range)
+      // 0.01-1s: sparse (fast queries) - 6 buckets
+      // 1-10s: FOCUSED (critical SLO range) - 12 buckets, ~1s steps
+      // 10-30s: sparse (slow/timeout) - 3 buckets
+      const API_RESPONSE_BUCKETS = [
+        0.01, 0.05, 0.1, 0.25, 0.5, 1.0,
+        1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0,
+        15, 20, 30
+      ];
 
       const app = express();
       app.use(promBundle({

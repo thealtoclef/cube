@@ -116,6 +116,9 @@ AsyncLocalStorage automatically cleans up when execution completes
 
 **Labels**:
 - `tenant`: Extracted from `securityContext.tenant` via AsyncLocalStorage
+  - For regular API requests: Extracted from JWT token
+  - For scheduled refresh queries: Labeled as `"scheduler"` (detected via `requestId` starting with `"scheduler-"`)
+  - If no tenant is available: Labeled as `"unknown"`
 - `data_source`: From query options (`opts.dataSource`), defaults to `"default"`
 - `external`: Query routing indicator:
   - `"true"`: Query executed against CubeStore/external data source
@@ -141,6 +144,7 @@ AsyncLocalStorage automatically cleans up when execution completes
 3. Track error rates at the database query level
 4. Identify database-level bottlenecks
 5. Monitor query retry patterns
+6. Track scheduled refresh query performance separately from user queries
 
 **Important Note**: This metric tracks **individual sub-query executions**, not API-level requests. A single API call typically generates multiple sub-queries. Some sub-queries may hit cache while others execute.
 
@@ -459,6 +463,27 @@ sum by(tenant, data_source, external) (
 sum by(tenant, data_source, external) (
   rate(cube_query_execution_time_count[5m])
 )
+```
+
+**Scheduler query performance (P95)**:
+```promql
+histogram_quantile(0.95, 
+  sum by(le) (rate(cube_query_execution_time_bucket{tenant="scheduler"}[5m]))
+)
+```
+
+**User queries vs scheduler queries comparison**:
+```promql
+histogram_quantile(0.95, 
+  sum by(tenant, le) (
+    rate(cube_query_execution_time_bucket{tenant=~"scheduler|.*"}[5m])
+  )
+)
+```
+
+**Scheduler query rate**:
+```promql
+sum(rate(cube_query_execution_time_count{tenant="scheduler"}[5m]))
 ```
 
 **Note**: These are example queries. Adjust time ranges, quantiles, and label filters based on your specific monitoring needs.

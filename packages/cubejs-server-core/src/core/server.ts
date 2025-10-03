@@ -743,7 +743,15 @@ export class CubejsServerCore {
           try {
             // Extract tenant from AsyncLocalStorage context
             const storedContext = this.requestContextStorage.getStore();
-            const tenant = storedContext?.securityContext?.tenant || 'unknown';
+            let tenant = storedContext?.securityContext?.tenant;
+            
+            // Check if request comes from scheduler (requestId starts with "scheduler-")
+            if (!tenant && opts?.requestId && typeof opts.requestId === 'string' && opts.requestId.startsWith('scheduler-')) {
+              tenant = 'scheduler';
+            }
+            
+            // Fallback to 'unknown' if still no tenant
+            tenant = tenant || 'unknown';
 
             // Query execution metric
             const queryLabels: any = {
@@ -911,9 +919,9 @@ export class CubejsServerCore {
    * Executes a function within an AsyncLocalStorage context.
    * This enables tenant and request information to be automatically
    * available throughout the async execution chain without explicit passing.
-   * 
+   *
    * Used for tracking query execution metrics with proper tenant attribution.
-   * 
+   *
    * @param context - Request context containing security context and request ID
    * @param fn - Async function to execute within the context
    * @returns Promise resolving to the function's return value

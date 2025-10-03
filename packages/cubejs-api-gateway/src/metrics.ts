@@ -10,13 +10,13 @@ import { Histogram, Counter } from 'prom-client';
 // - Use exponential growth to balance accuracy vs cardinality
 // - Reference: https://prometheus.io/docs/practices/histograms/
 //
-// Our configuration: 21 buckets (within recommended range)
-// 0.01-1s: sparse (fast queries) - 6 buckets
-// 1-10s: FOCUSED (critical SLO range) - 12 buckets, ~1s steps
+// Our configuration: 24 buckets (within recommended range)
+// 0.01-1s: exponential growth for sub-second queries - 7 buckets
+// 1-10s: FOCUSED (critical SLO range) - 14 buckets, 0.5-1s steps
 // 10-30s: sparse (slow/timeout) - 3 buckets
 const API_RESPONSE_BUCKETS = [
-  0.01, 0.05, 0.1, 0.25, 0.5, 1.0,
-  1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0,
+  0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0,
+  1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0,
   15, 20, 30
 ];
 
@@ -30,16 +30,16 @@ const API_RESPONSE_BUCKETS = [
 // - Use exponential growth to balance accuracy vs resource usage
 // - Reference: https://prometheus.io/docs/practices/histograms/
 //
-// Our configuration: 28 buckets (within acceptable range)
-// 0.01-1s: sparse (fast OLTP queries) - 5 buckets
-// 1-10s: FOCUSED (typical analytical) - 9 buckets, ~1s steps
+// Our configuration: 30 buckets (within acceptable range)
+// 0.01-1s: exponential growth for sub-second OLTP queries - 7 buckets
+// 1-10s: FOCUSED (typical analytical) - 12 buckets, 0.5-1s steps
 // 10-60s: medium (complex queries) - 7 buckets
-// 60-300s: sparse (heavy analytical/batch) - 7 buckets, max 5 minutes
+// 60-300s: sparse (heavy analytical/batch) - 4 buckets, max 5 minutes
 const QUERY_EXECUTION_BUCKETS = [
-  0.01, 0.1, 0.25, 0.5, 1.0,
-  2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0,
+  0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0,
+  1.5, 2.0, 3.0, 3.5, 4.0, 4.5, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0,
   15, 20, 25, 30, 40, 50, 60,
-  75, 90, 120, 150, 180, 240, 300
+  90, 120, 180, 300
 ];
 
 export const loadResponseTime = new Histogram({

@@ -2141,7 +2141,9 @@ const variables: Record<string, (...args: any) => any> = {
   maxSourceRowLimit: () => get('CUBEJS_MAX_SOURCE_ROW_LIMIT')
     .default(200000)
     .asInt(),
-  convertTzForRawTimeDimension: () => get('CUBESQL_SQL_PUSH_DOWN').default('true').asBoolStrict(),
+  convertTzForRawTimeDimension: () => get('CUBEJS_CONVERT_TZ_FOR_RAW_TIME_DIMENSION')
+    .default('false')
+    .asBoolStrict(),
   // Deprecated section
 
   // Support for Redis as queue & cache driver was removed in 0.36

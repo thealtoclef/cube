@@ -111,7 +111,7 @@ const GranularityInterval = Joi.string().pattern(/^\d+\s+(second|minute|hour|day
 const GranularityOffset = Joi.string().pattern(/^-?(\d+\s+)(second|minute|hour|day|week|month|quarter|year)s?(\s-?\d+\s+(second|minute|hour|day|week|month|quarter|year)s?){0,7}$/, 'granularity offset');
 
 const formatSchema = Joi.alternatives([
-  Joi.string().valid('imageUrl', 'link', 'currency', 'percent', 'number', 'id'),
+  Joi.string(),
   Joi.object().keys({
     type: Joi.string().valid('link'),
     label: Joi.string().required()

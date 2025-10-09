@@ -853,6 +853,13 @@ export class PreAggregations {
             .find(p => p.canUsePreAggregation && (!this.query.options.preAggregationId || p.preAggregationId === this.query.options.preAggregationId));
       }
     }
+
+    // Filter out external pre-aggregations when disableExternalPreAggregations is set.
+    // This ensures cache refresh keys are generated for the source query instead.
+    if (this.query.options.disableExternalPreAggregations && this.preAggregationForQuery?.preAggregation.external) {
+      return undefined;
+    }
+
     return this.preAggregationForQuery;
   }
 

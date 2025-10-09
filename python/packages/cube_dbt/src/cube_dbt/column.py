@@ -259,6 +259,8 @@ class Column:
         if self.meta:
             if "title" in self.meta:
                 data["title"] = self.meta["title"]
+            if "format" in self.meta:
+                data["format"] = self.meta["format"]
             data["meta"] = self.meta
         return data
 

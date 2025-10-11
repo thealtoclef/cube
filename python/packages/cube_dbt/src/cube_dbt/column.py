@@ -191,6 +191,8 @@ class Column:
             return name
 
         normalized_data_type = data_type.lower()
+        if normalized_data_type in ("date", "datetime"):
+            return f"TIMESTAMP({name})"
         if normalized_data_type == "bytes":
             return f"SAFE_CONVERT_BYTES_TO_STRING({name})"
         elif normalized_data_type in ("record", "json", "array", "struct"):

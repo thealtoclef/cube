@@ -20,6 +20,18 @@ import { LoadPreAggregationResult, PreAggregationDescription } from './PreAggreg
 import { getCacheHash } from './utils';
 import { CacheAndQueryDriverType, MetadataOperationType } from './QueryOrchestrator';
 
+/**
+ * Result from cache query execution with metadata about cache hits
+ */
+export interface CachedQueryResult<T = any> {
+  /** The actual query result data */
+  result: T;
+  /** Whether the result came from any cache layer (in-memory or persistent) */
+  fromCache: boolean;
+  /** Whether the result came specifically from the in-memory LRU cache */
+  fromInMemoryCache: boolean;
+}
+
 type QueryOptions = {
   external?: boolean;
   renewalThreshold?: number;
@@ -342,9 +354,12 @@ export class QueryCache {
       );
     }
 
+    const cachedResult = await mainPromise;
     return {
-      data: await mainPromise,
-      lastRefreshTime: await this.lastRefreshTime(cacheKey)
+      data: cachedResult.result,
+      lastRefreshTime: await this.lastRefreshTime(cacheKey),
+      fromCache: cachedResult.fromCache,
+      fromInMemoryCache: cachedResult.fromInMemoryCache,
     };
   }
 
@@ -845,35 +860,38 @@ export class QueryCache {
         this.logger('Error fetching cache key queries', { error: e.stack || e, requestId: options.requestId });
         return [];
       })
-      .then(async cacheKeyQueryResults => (
-        {
-          data: await this.cacheQueryResult(
-            query,
-            values,
-            cacheKey,
-            expireSecs,
-            {
-              renewalThreshold: renewalThreshold || 6 * 60 * 60,
-              renewalKey: cacheKeyQueryResults && [
-                cacheKeyQueries,
-                cacheKeyQueryResults,
-                this.queryRedisKey([query, values]),
-              ],
-              waitForRenew: true,
-              external: options.external,
-              requestId: options.requestId,
-              dataSource: options.dataSource,
-              useCsvQuery: options.useCsvQuery,
-              lambdaTypes: options.lambdaTypes,
-              persistent: options.persistent,
-              primaryQuery: true,
-              renewCycle: options.renewCycle,
-            }
-          ),
+      .then(async cacheKeyQueryResults => {
+        const data = await this.cacheQueryResult(
+          query,
+          values,
+          cacheKey,
+          expireSecs,
+          {
+            renewalThreshold: renewalThreshold || 6 * 60 * 60,
+            renewalKey: cacheKeyQueryResults && [
+              cacheKeyQueries,
+              cacheKeyQueryResults,
+              this.queryRedisKey([query, values]),
+            ],
+            waitForRenew: true,
+            external: options.external,
+            requestId: options.requestId,
+            dataSource: options.dataSource,
+            useCsvQuery: options.useCsvQuery,
+            lambdaTypes: options.lambdaTypes,
+            persistent: options.persistent,
+            primaryQuery: true,
+            renewCycle: options.renewCycle,
+          }
+        );
+        return {
+          data: data.result,
           refreshKeyValues: cacheKeyQueryResults,
-          lastRefreshTime: await this.lastRefreshTime(cacheKey)
-        }
-      ));
+          lastRefreshTime: await this.lastRefreshTime(cacheKey),
+          fromCache: data.fromCache,
+          fromInMemoryCache: data.fromInMemoryCache,
+        };
+      });
   }
 
   public async loadRefreshKeysFromQuery(query: Query) {
@@ -946,13 +964,13 @@ export class QueryCache {
       renewCycle?: boolean,
       isJob?: boolean,
     }
-  ) {
+  ): Promise<CachedQueryResult> {
     const spanId = crypto.randomBytes(16).toString('hex');
     options = options || { dataSource: 'default' };
     const { renewalThreshold, primaryQuery, renewCycle } = options;
     const renewalKey = options.renewalKey && this.queryRedisKey(options.renewalKey);
     const redisKey = this.queryRedisKey(cacheKey);
-    const fetchNew = () => (
+    const fetchNew = (): Promise<CachedQueryResult> => (
       this.queryWithRetryAndRelease(query, values, {
         cacheKey,
         priority: options.priority,
@@ -981,7 +999,12 @@ export class QueryCache {
               bytes,
               cacheKey,
             });
-            return res;
+            // Return structured result with cache metadata
+            return {
+              result: res,
+              fromCache: false,
+              fromInMemoryCache: false,
+            };
           });
       }).catch(e => {
         if (!(e instanceof ContinueWaitError)) {
@@ -1011,6 +1034,7 @@ export class QueryCache {
     }
 
     let res;
+    let fromInMemoryCache = false;
 
     const inMemoryCacheDisablePeriod = 5 * 60 * 1000;
 
@@ -1044,6 +1068,7 @@ export class QueryCache {
             renewCycle
           });
           res = inMemoryValue;
+          fromInMemoryCache = true;
         }
       }
     }
@@ -1091,7 +1116,12 @@ export class QueryCache {
       if (options.useInMemory && renewedAgo + inMemoryCacheDisablePeriod <= renewalThreshold * 1000) {
         this.memoryCache.set(redisKey, parsedResult);
       }
-      return parsedResult.result;
+      // Return structured result with cache metadata
+      return {
+        result: parsedResult.result,
+        fromCache: true,
+        fromInMemoryCache,
+      };
     } else {
       this.logger('Missing cache for', { cacheKey, requestId: options.requestId, spanId, primaryQuery, renewCycle });
       return fetchNew();
@@ -1105,11 +1135,27 @@ export class QueryCache {
 
   public async resultFromCacheIfExists(queryBody) {
     const cacheKey = QueryCache.queryCacheKey(queryBody);
-    const cachedValue = await this.cacheDriver.get(this.queryRedisKey(cacheKey));
+    const redisKey = this.queryRedisKey(cacheKey);
+    
+    // Check in-memory cache first (faster)
+    const inMemoryValue = this.memoryCache.get(redisKey);
+    if (inMemoryValue) {
+      return {
+        data: inMemoryValue.result,
+        lastRefreshTime: new Date(inMemoryValue.time),
+        fromCache: true,
+        fromInMemoryCache: true,
+      };
+    }
+    
+    // Check persistent cache driver
+    const cachedValue = await this.cacheDriver.get(redisKey);
     if (cachedValue) {
       return {
         data: cachedValue.result,
-        lastRefreshTime: new Date(cachedValue.time)
+        lastRefreshTime: new Date(cachedValue.time),
+        fromCache: true,
+        fromInMemoryCache: false,
       };
     }
     return null;

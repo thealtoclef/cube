@@ -121,13 +121,6 @@ export class OrchestratorApi {
       return data;
     } catch (err) {
       if ((err instanceof pt.TimeoutError || err instanceof ContinueWaitError)) {
-        this.logger('Continue wait', {
-          duration: ((new Date()).getTime() - startQueryTime),
-          query: queryForLog,
-          params: query.values,
-          requestId: query.requestId
-        });
-
         const fromCache = await this
           .orchestrator
           .resultFromCacheIfExists(query);
@@ -144,9 +137,20 @@ export class OrchestratorApi {
               'consider using low latency pre-aggregations.'
           });
 
+          // Need to import CacheType and determineCacheType
+          const { determineCacheType } = require('@cubejs-backend/query-orchestrator');
+          
+          const cacheType = determineCacheType({
+            usedPreAggregations: {},
+            external: false,
+            fromCache: fromCache.fromCache || false,
+            fromInMemoryCache: fromCache.fromInMemoryCache || false,
+          });
+
           return {
             ...fromCache,
-            slowQuery: true
+            slowQuery: true,
+            cacheType,
           };
         }
 
@@ -154,7 +158,10 @@ export class OrchestratorApi {
           error: 'Continue wait',
           stage: !query.scheduledRefresh
             ? await this.orchestrator.queryStage(query)
-            : null
+            : null,
+          // Include SQL query information for comprehensive logging
+          sqlQuery: queryForLog,
+          sqlParams: query.values,
         };
       }
 

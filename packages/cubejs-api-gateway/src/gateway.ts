@@ -104,6 +104,39 @@ import {
 } from './helpers/transformMetaExtended';
 import { loadResponseTime, metaResponseTime, preAggregationsResponseTime, cubeSqlResponseTime, dryRunResponseTime } from './metrics';
 
+/**
+ * Response from OrchestratorApi.executeQuery() after wrapping data with ResultWrapper.
+ * This is the structure returned by wrapAdapterQueryResultIfNeeded().
+ * 
+ * The response contains:
+ * - data: Query results wrapped in ResultWrapper for efficient serialization
+ * - Metadata about how the query was executed (cache type, data source, etc.)
+ */
+export interface WrappedQueryResponse {
+  /** Query results wrapped in ResultWrapper */
+  data: ResultWrapper;
+  /** Which data source executed the query */
+  dataSource?: string;
+  /** Database type (e.g., 'bigquery', 'postgres') */
+  dbType?: string;
+  /** External database type (e.g., 'cubestore') */
+  extDbType?: string;
+  /** Whether query used external storage (Cube Store) */
+  external?: boolean;
+  /** How the query result was obtained (cache type) */
+  cacheType?: string;
+  /** Pre-aggregations that were used */
+  usedPreAggregations?: Record<string, any>;
+  /** When the cache was last refreshed */
+  lastRefreshTime?: Date;
+  /** Whether query exceeded timeout threshold */
+  slowQuery?: boolean;
+  /** Total count (if requested) */
+  total?: number;
+  /** Refresh key values for cache invalidation */
+  refreshKeyValues?: any[];
+}
+
 type HandleErrorOptions = {
     e: any,
     res: ResponseResultFn,
@@ -1729,7 +1762,7 @@ class ApiGateway {
     context: RequestContext,
     normalizedQuery: NormalizedQuery,
     sqlQuery: any,
-  ): Promise<ResultWrapper> {
+  ): Promise<WrappedQueryResponse> {
     try {
       return await this._getSqlResponseInternal(context, normalizedQuery, sqlQuery);
     } catch (error: any) {
@@ -1786,7 +1819,7 @@ class ApiGateway {
     context: RequestContext,
     normalizedQuery: NormalizedQuery,
     sqlQuery: any,
-  ): Promise<ResultWrapper> {
+  ): Promise<WrappedQueryResponse> {
     const queries = [{
       ...sqlQuery,
       query: sqlQuery.sql[0],
@@ -1855,10 +1888,18 @@ class ApiGateway {
    * @param res Adapter's response
    * @private
    */
-  private wrapAdapterQueryResultIfNeeded(res: any): ResultWrapper {
+  /**
+   * Wraps the query result data in ResultWrapper for efficient serialization.
+   * The input res from OrchestratorApi.executeQuery() contains the query results
+   * and metadata. We wrap only the data portion, keeping metadata at the top level.
+   * 
+   * @param res Response from OrchestratorApi.executeQuery()
+   * @returns Same structure with data wrapped in ResultWrapper
+   */
+  private wrapAdapterQueryResultIfNeeded(res: any): WrappedQueryResponse {
     res.data = new ResultWrapper(res.data);
 
-    return res;
+    return res as WrappedQueryResponse;
   }
 
   /**
@@ -1923,6 +1964,7 @@ class ApiGateway {
       external: response.external,
       slowQuery: Boolean(response.slowQuery),
       total: normalizedQuery.total ? response.total : null,
+      cacheType: response.cacheType,
     };
 
     resultWrapper.setTransformData(transformDataParams);
@@ -2065,28 +2107,58 @@ class ApiGateway {
         })
       );
 
+      // Determine the primary cache type for metrics
+      // For multi-query, use the most common cache type, or 'no_cache' if there's a mix
+      const cacheTypes = results.map(r => {
+        const rootObj = r.getRootResultObject()[0];
+        return rootObj.cacheType || 'unknown';
+      });
+      
+      const duration = this.duration(requestStarted);
+      
+      // Extract response properties from results
+      const firstResult = results[0].getRootResultObject()[0];
+      const responseProps = {
+        dataSource: firstResult.dataSource,
+        dbType: firstResult.dbType,
+        extDbType: firstResult.extDbType,
+        external: firstResult.external,
+        lastRefreshTime: firstResult.lastRefreshTime,
+        slowQuery: firstResult.slowQuery,
+        cacheType: firstResult.cacheType || 'unknown',
+      };
+
+      // Log Load Request Success with cache type and response details
       this.log(
         {
           type: 'Load Request Success',
           query,
-          duration: this.duration(requestStarted),
+          duration,
           apiType,
-          isPlayground: Boolean(
-            context.signedWithPlaygroundAuthSecret
-          ),
+          isPlayground: Boolean(context.signedWithPlaygroundAuthSecret),
           queries: results.length,
           queriesWithPreAggregations:
             results.filter(
               (r: any) => Object.keys(r.getRootResultObject()[0].usedPreAggregations || {}).length
             ).length,
-          // Have to omit because data could be processed natively
-          // so it is not known at this point
-          // queriesWithData:
-          //   results.filter((r: any) => r.data?.length).length,
-          dbType: results.map(r => r.getRootResultObject()[0].dbType),
+          // Response properties
+          ...responseProps,
         },
         context,
       );
+
+      let primaryCacheType = cacheTypes[0] || 'unknown';
+      if (results.length > 1) {
+        // Count occurrences of each cache type
+        const cacheTypeCount: Record<string, number> = {};
+        cacheTypes.forEach(ct => {
+          cacheTypeCount[ct] = (cacheTypeCount[ct] || 0) + 1;
+        });
+        // Find the most common cache type
+        const [[mostCommonCacheType]] = Object.entries(cacheTypeCount)
+          .sort((a, b) => b[1] - a[1]);
+        primaryCacheType = mostCommonCacheType;
+      }
 
       if (props.queryType === 'multi') {
         // We prepare the final json result on native side
@@ -2100,6 +2172,7 @@ class ApiGateway {
           multi_query: 'true',
           query_count: results.length.toString(),
           is_playground: context.signedWithPlaygroundAuthSecret ? 'true' : 'false',
+          cache_type: primaryCacheType,
         });
       } else {
         // We prepare the full final json result on native side
@@ -2112,6 +2185,7 @@ class ApiGateway {
           multi_query: 'false',
           query_count: results.length.toString(),
           is_playground: context.signedWithPlaygroundAuthSecret ? 'true' : 'false',
+          cache_type: primaryCacheType,
         });
       }
     } catch (e: any) {
@@ -2264,6 +2338,22 @@ class ApiGateway {
           })
         );
 
+        // Determine the primary cache type for metrics
+        const cacheTypes = results.map(r => {
+          const rootObj = r.getRootResultObject()[0];
+          return rootObj.cacheType || 'unknown';
+        });
+        
+        let primaryCacheType = cacheTypes[0] || 'unknown';
+        if (cacheTypes.length > 1) {
+          // For multi-query, use the most common cache type
+          const counts = cacheTypes.reduce((acc, type) => {
+            acc[type] = (acc[type] || 0) + 1;
+            return acc;
+          }, {} as Record<string, number>);
+          primaryCacheType = Object.keys(counts).reduce((a, b) => counts[a] > counts[b] ? a : b);
+        }
+
         if (request.streaming) {
           await res(results[0]);
           histogramMetric({
@@ -2274,6 +2364,7 @@ class ApiGateway {
             multi_query: results.length > 1 ? 'true' : 'false',
             query_count: results.length.toString(),
             is_playground: context.signedWithPlaygroundAuthSecret ? 'true' : 'false',
+            cache_type: primaryCacheType,
           });
         } else {
           // We prepare the final json result on native side
@@ -2287,6 +2378,7 @@ class ApiGateway {
             multi_query: results.length > 1 ? 'true' : 'false',
             query_count: results.length.toString(),
             is_playground: context.signedWithPlaygroundAuthSecret ? 'true' : 'false',
+            cache_type: primaryCacheType,
           });
         }
       }
@@ -2428,6 +2520,11 @@ class ApiGateway {
         query,
         error: e.message,
         duration: this.duration(requestStarted),
+        isPlayground: Boolean(context?.signedWithPlaygroundAuthSecret),
+        // Include SQL-level information from orchestrator
+        ...(e.sqlQuery && { sqlQuery: e.sqlQuery }),
+        ...(e.sqlParams && { sqlParams: e.sqlParams }),
+        ...(e.stage && { stage: e.stage }),
       }, context);
       res({ error: e.message || e.error.message || e.error.toString(), requestId }, { status: 200 });
     } else if (e.error) {
@@ -2818,7 +2915,18 @@ class ApiGateway {
   protected requestLogger: RequestHandler = async (req: Request, res: ExpressResponse, next: NextFunction) => {
     const details = requestParser(req, res);
 
-    this.log({ type: 'REST API Request', ...details }, req.context);
+    // Extract query information from request body if available
+    const queryInfo: any = {};
+    if (req.body) {
+      if (req.body.query) {
+        queryInfo.query = req.body.query;
+      }
+      if (req.body.queries) {
+        queryInfo.queries = req.body.queries;
+      }
+    }
+
+    this.log({ type: 'REST API Request', ...details, ...queryInfo }, req.context);
 
     if (next) {
       next();

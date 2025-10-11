@@ -653,6 +653,8 @@ pub struct RequestResultData {
     pub external: Option<bool>,
     pub slow_query: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub total: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<TransformedData>,

@@ -108,11 +108,11 @@ RUN yarn install --prod --ignore-scripts
 
 FROM base AS build
 
-RUN yarn install
+# Skip postinstall scripts (we build native module from source anyway)
+RUN yarn install --ignore-scripts
 
 # Backend
-COPY rust/cubestore/ rust/cubestore/
-COPY rust/cubesql/ rust/cubesql/
+COPY rust/ rust/
 COPY packages/cubejs-backend-shared/ packages/cubejs-backend-shared/
 COPY packages/cubejs-base-driver/ packages/cubejs-base-driver/
 COPY packages/cubejs-backend-native/ packages/cubejs-backend-native/
@@ -165,6 +165,10 @@ COPY packages/cubejs-vertica-driver/ packages/cubejs-vertica-driver/
 # COPY packages/cubejs-client-ngx/ packages/cubejs-client-ngx/
 # COPY packages/cubejs-client-ws-transport/ packages/cubejs-client-ws-transport/
 # COPY packages/cubejs-playground/ packages/cubejs-playground/
+
+# Build Rust native module from source with Python support
+RUN cd packages/cubejs-backend-native && \
+    yarn run native:build-release-python
 
 # RUN yarn build
 RUN yarn lerna run build

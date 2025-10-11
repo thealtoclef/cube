@@ -6,11 +6,7 @@
 !yarn.lock
 !lerna.json
 !packages/
-!rust/cubestore/js-wrapper/
-!rust/cubestore/tsconfig.json
-!rust/cubestore/package.json
-!rust/cubestore/bin
-!rust/cubesql/package.json
+!rust/
 !docker-entrypoint.sh
 !cube-py-watcher.py
 !python/

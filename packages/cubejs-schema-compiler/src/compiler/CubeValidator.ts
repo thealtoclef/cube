@@ -110,13 +110,7 @@ const GranularityInterval = Joi.string().pattern(/^\d+\s+(second|minute|hour|day
 // Do not allow negative intervals for granularities, while offsets could be negative
 const GranularityOffset = Joi.string().pattern(/^-?(\d+\s+)(second|minute|hour|day|week|month|quarter|year)s?(\s-?\d+\s+(second|minute|hour|day|week|month|quarter|year)s?){0,7}$/, 'granularity offset');
 
-const formatSchema = Joi.alternatives([
-  Joi.string(),
-  Joi.object().keys({
-    type: Joi.string().valid('link'),
-    label: Joi.string().required()
-  })
-]);
+const formatSchema = Joi.string();
 
 const BaseDimensionWithoutSubQuery = {
   aliases: Joi.array().items(Joi.string()),
@@ -234,7 +228,7 @@ const ToDate = {
 
 const BaseMeasure = {
   aliases: Joi.array().items(Joi.string()),
-  format: Joi.any().valid('percent', 'currency', 'number'),
+  format: formatSchema,
   public: Joi.boolean().strict(),
   // TODO: Deprecate and remove, please use public
   visible: Joi.boolean().strict(),

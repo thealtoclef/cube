@@ -144,7 +144,7 @@ components:
         meta:
           type: "object"
         format:
-          $ref: "#/components/schemas/V1CubeMetaFormat"
+          type: "string"
     V1CubeMetaMeasure:
       type: "object"
       required:
@@ -166,7 +166,7 @@ components:
         meta:
           type: "object"
         format:
-          $ref: "#/components/schemas/V1CubeMetaFormat"
+          type: "string"
         aliasMember:
           description: "When measure is defined in View, it keeps the original path: Cube.measure"
           type: "string"

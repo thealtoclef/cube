@@ -1,4 +1,4 @@
-import { Histogram, Counter } from 'prom-client';
+import { Histogram } from 'prom-client';
 
 // API metric buckets optimized for continue wait mechanism
 // Continue wait: default 5s, max 10s per poll, total request up to 30s
@@ -45,41 +45,20 @@ const QUERY_EXECUTION_BUCKETS = [
 export const loadResponseTime = new Histogram({
   name: 'cube_api_load_response_time',
   help: 'Duration of load response in seconds',
-  labelNames: ['tenant', 'api_type', 'query_type', 'slow_query', 'multi_query', 'query_count', 'is_playground'] as const,
+  labelNames: ['tenant', 'api_type', 'slow_query', 'query_count', 'is_playground', 'status'] as const,
   buckets: API_RESPONSE_BUCKETS
 });
 
 export const metaResponseTime = new Histogram({
   name: 'cube_api_meta_response_time',
   help: 'Duration of meta endpoint response in seconds',
-  labelNames: ['tenant', 'endpoint', 'extended'] as const,
-  buckets: API_RESPONSE_BUCKETS
-});
-
-export const preAggregationsResponseTime = new Histogram({
-  name: 'cube_api_pre_aggregations_response_time',
-  help: 'Duration of pre-aggregations endpoint response in seconds',
-  labelNames: ['tenant', 'endpoint'] as const,
-  buckets: API_RESPONSE_BUCKETS
-});
-
-export const cubeSqlResponseTime = new Histogram({
-  name: 'cube_api_cubesql_response_time',
-  help: 'Duration of CubeSQL endpoint response in seconds',
-  labelNames: ['tenant'] as const,
-  buckets: API_RESPONSE_BUCKETS
-});
-
-export const dryRunResponseTime = new Histogram({
-  name: 'cube_api_dry_run_response_time',
-  help: 'Duration of dry-run endpoint response in seconds',
-  labelNames: ['tenant', 'method'] as const,
+  labelNames: ['tenant', 'extended', 'only_compiler_id', 'status'] as const,
   buckets: API_RESPONSE_BUCKETS
 });
 
 export const queryExecutionTime = new Histogram({
   name: 'cube_query_execution_time',
   help: 'Duration of actual query execution time in seconds',
-  labelNames: ['tenant', 'data_source', 'external', 'has_error'] as const,
+  labelNames: ['tenant', 'data_source', 'external', 'status'] as const,
   buckets: QUERY_EXECUTION_BUCKETS
 });

@@ -758,7 +758,7 @@ export class CubejsServerCore {
               tenant,
               data_source: opts?.dataSource ?? 'default',
               external: opts?.external ? 'true' : 'false',
-              has_error: error ? 'true' : 'false',
+              status: error ? 'error' : 'success',
             };
 
             queryExecutionTime.observe(queryLabels, duration);

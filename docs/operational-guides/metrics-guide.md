@@ -4,7 +4,7 @@
 
 ## Overview
 
-Cube exports comprehensive Prometheus metrics tracking both API-level performance and database-level query execution. This guide covers **all 6 Cube metrics** with implementation details, monitoring strategies, and production-ready alert configurations.
+Cube exports comprehensive Prometheus metrics tracking both API-level performance and database-level query execution. This guide covers **all 3 Cube metrics** with implementation details, monitoring strategies, and production-ready alert configurations.
 
 ### Available Metrics
 
@@ -13,9 +13,6 @@ Cube exports comprehensive Prometheus metrics tracking both API-level performanc
 | `cube_api_load_response_time` | Histogram | API | ✅ Active |
 | `cube_query_execution_time` | Histogram | Database | ✅ Active |
 | `cube_api_meta_response_time` | Histogram | API | ✅ Active |
-| `cube_api_pre_aggregations_response_time` | Histogram | API | ✅ Active |
-| `cube_api_cubesql_response_time` | Histogram | API | ✅ Active |
-| `cube_api_dry_run_response_time` | Histogram | API | ✅ Active |
 
 **Key Characteristics**:
 - **Prometheus format**: Metrics exported at `/metrics` endpoint
@@ -78,25 +75,24 @@ AsyncLocalStorage automatically cleans up when execution completes
 **Labels**:
 - `tenant`: Tenant identifier extracted from JWT (`securityContext.tenant`)
 - `api_type`: API interface - `"rest"` or `"graphql"`
-- `query_type`: Query classification:
-  - `"regularQuery"`: Standard data query
-  - `"compareDateRangeQuery"`: Date range comparison query
-  - `"blendingQuery"`: Blended/joined query across cubes
 - `slow_query`: `"true"` if query is identified as slow, `"false"` otherwise
-- `multi_query`: `"true"` for multi-query requests, `"false"` for single query
 - `query_count`: Number of queries in request (as string: `"1"`, `"2"`, `"3"`, etc.)
 - `is_playground`: `"true"` if request from Cube Playground, `"false"` for production
+- `status`: Request execution result:
+  - `"success"`: Request completed successfully
+  - `"error"`: Request encountered an error
 
 **Use Cases**:
 - ✅ Monitor overall API performance and SLA compliance
 - ✅ Identify slow queries affecting user experience
-- ✅ Track multi-query vs single-query performance differences
+- ✅ Track query volume patterns via `query_count`
 - ✅ Distinguish playground usage from production traffic
-- ✅ Analyze query type performance characteristics
+- ✅ Monitor API error rates with `status` label
 
 **Alert Thresholds**:
 - Warning: p95 > 5s
 - Critical: p95 > 30s
+- Error rate > 5% per tenant
 
 ---
 
@@ -123,9 +119,9 @@ AsyncLocalStorage automatically cleans up when execution completes
 - `external`: Query routing indicator:
   - `"true"`: Query executed against CubeStore/external data source
   - `"false"`: Query executed against source database
-- `has_error`: Query execution result:
-  - `"true"`: Query encountered an error
-  - `"false"`: Query executed successfully
+- `status`: Query execution result:
+  - `"success"`: Query executed successfully
+  - `"error"`: Query encountered an error
 
 **Relationship to API metric**:
 ```
@@ -167,96 +163,28 @@ AsyncLocalStorage automatically cleans up when execution completes
 
 **Labels**:
 - `tenant`: Tenant identifier from JWT
-- `endpoint`: Always `"meta"` (for future extensibility)
 - `extended`: Schema detail level:
   - `"true"`: Extended metadata requested (`/v1/meta?extended`)
   - `"false"`: Standard metadata
+- `only_compiler_id`: Compiler ID only request:
+  - `"true"`: Request only fetches compiler ID (minimal response)
+  - `"false"`: Full metadata response
+- `status`: Request execution result:
+  - `"success"`: Request completed successfully
+  - `"error"`: Request encountered an error
 
 **Use Cases**:
-- Monitor metadata service health
+- Monitor metadata service health and error rates
 - Track impact of schema complexity on metadata retrieval
 - Identify tenants with slow schema loading
 - Optimize schema caching strategies
+- Monitor compiler ID check performance (lightweight requests)
 
 **Alert Thresholds**:
 - Standard metadata: p95 > 1s
 - Extended metadata: p95 > 3s
-
----
-
-### 4. Pre-Aggregations Response Time
-
-#### `cube_api_pre_aggregations_response_time`
-
-**Type**: Histogram
-
-**Description**: Duration of pre-aggregations management endpoint responses. Tracks operations like checking pre-aggregation usability and managing build jobs.
-
-**When recorded**: For `/v1/pre-aggregations/can-use` and `/v1/pre-aggregations/jobs` requests
-
-**Labels**:
-- `tenant`: Tenant identifier from JWT
-- `endpoint`: Pre-aggregations operation type:
-  - `"can-use"`: Checks if query can use pre-aggregations
-  - `"jobs"`: Pre-aggregation job management operations
-
-**Use Cases**:
-- Monitor pre-aggregation build performance
-- Track pre-aggregation management overhead
-- Identify issues with pre-aggregation metadata queries
-- Optimize Rollup Designer performance
-
-**Alert Thresholds**:
-- `can-use`: p95 > 500ms
-- `jobs`: p95 > 2s
-
----
-
-### 5. CubeSQL Response Time
-
-#### `cube_api_cubesql_response_time`
-
-**Type**: Histogram
-
-**Description**: Duration of CubeSQL endpoint (`/v1/cubesql`) responses. Tracks SQL API queries that use Cube's SQL interface.
-
-**When recorded**: For every `/v1/cubesql` API request
-
-**Labels**:
-- `tenant`: Tenant identifier from JWT
-
-**When Used**:
-- SQL clients (e.g., Tableau, Metabase)
-- JDBC/ODBC connections
-- Direct SQL queries to Cube
-
-**Alert Thresholds**: p95 > 5s
-
----
-
-### 6. Dry Run Response Time
-
-#### `cube_api_dry_run_response_time`
-
-**Type**: Histogram
-
-**Description**: Duration of dry-run endpoint responses. Tracks query validation and SQL generation without execution.
-
-**When recorded**: For every `/v1/dry-run` API request (GET and POST methods)
-
-**Labels**:
-- `tenant`: Tenant identifier from JWT
-- `method`: HTTP method used:
-  - `"GET"`: Query passed as query parameter
-  - `"POST"`: Query passed in request body
-
-**Use Cases**:
-- Monitor query compilation performance
-- Track SQL generation overhead
-- Identify complex query patterns affecting compilation
-- Optimize development workflow (Playground, IDE tools)
-
-**Alert Thresholds**: p95 > 1s
+- Compiler ID only: p95 > 100ms
+- Error rate > 1%
 
 ---
 
@@ -264,19 +192,19 @@ AsyncLocalStorage automatically cleans up when execution completes
 
 ```prometheus
 # Example: Source database query
-cube_query_execution_time_bucket{le="4",tenant="customer-123",data_source="default",external="false",has_error="false"} 1
-cube_query_execution_time_sum{tenant="customer-123",data_source="default",external="false",has_error="false"} 3.216
-cube_query_execution_time_count{tenant="customer-123",data_source="default",external="false",has_error="false"} 1
+cube_query_execution_time_bucket{le="4",tenant="customer-123",data_source="default",external="false",status="success"} 1
+cube_query_execution_time_sum{tenant="customer-123",data_source="default",external="false",status="success"} 3.216
+cube_query_execution_time_count{tenant="customer-123",data_source="default",external="false",status="success"} 1
 
 # Example: CubeStore query
-cube_query_execution_time_bucket{le="0.1",tenant="customer-123",data_source="default",external="true",has_error="false"} 1
-cube_query_execution_time_sum{tenant="customer-123",data_source="default",external="true",has_error="false"} 0.087
-cube_query_execution_time_count{tenant="customer-123",data_source="default",external="true",has_error="false"} 1
+cube_query_execution_time_bucket{le="0.1",tenant="customer-123",data_source="default",external="true",status="success"} 1
+cube_query_execution_time_sum{tenant="customer-123",data_source="default",external="true",status="success"} 0.087
+cube_query_execution_time_count{tenant="customer-123",data_source="default",external="true",status="success"} 1
 
 # Example: Multiple queries from source database
-cube_query_execution_time_bucket{le="0.05",tenant="customer-123",data_source="default",external="false",has_error="false"} 15
-cube_query_execution_time_sum{tenant="customer-123",data_source="default",external="false",has_error="false"} 0.342
-cube_query_execution_time_count{tenant="customer-123",data_source="default",external="false",has_error="false"} 15
+cube_query_execution_time_bucket{le="0.05",tenant="customer-123",data_source="default",external="false",status="success"} 15
+cube_query_execution_time_sum{tenant="customer-123",data_source="default",external="false",status="success"} 0.342
+cube_query_execution_time_count{tenant="customer-123",data_source="default",external="false",status="success"} 15
 ```
 
 **Note**: The `tenant` value is dynamically extracted from each request's JWT token and will vary based on the authenticated user/tenant.
@@ -324,7 +252,7 @@ onQueryComplete: (query, values, opts, duration, error) => {
       tenant,
       data_source: opts?.dataSource ?? 'default',
       external: opts?.external ? 'true' : 'false',
-      has_error: error ? 'true' : 'false',
+      status: error ? 'error' : 'success',
     };
     
     // Optional: Enable for debugging
@@ -444,7 +372,7 @@ histogram_quantile(0.95,
 
 **Query error rate by tenant**:
 ```promql
-sum by(tenant) (rate(cube_query_execution_time_count{has_error="true"}[5m]))
+sum by(tenant) (rate(cube_query_execution_time_count{status="error"}[5m]))
 / 
 sum by(tenant) (rate(cube_query_execution_time_count[5m]))
 ```
@@ -508,7 +436,7 @@ groups:
 
       - alert: HighQueryErrorRate
         expr: |
-          sum(rate(cube_query_execution_time_count{has_error="true"}[5m])) by (tenant)
+          sum(rate(cube_query_execution_time_count{status="error"}[5m])) by (tenant)
           / 
           sum(rate(cube_query_execution_time_count[5m])) by (tenant) > 0.05
         for: 5m

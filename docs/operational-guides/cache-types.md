@@ -300,19 +300,24 @@ Server logs include cache type information for each request:
 }
 ```
 
-**Note**: For multi-query requests:
-- Descriptive metadata (`dataSource`, `dbType`, `cacheType`, `lastRefreshTime`) represents the **first (primary) query**
-- `queryType` indicates the type of query execution (e.g., `regularQuery`, `blendingQuery`, `compareDateRangeQuery`)
-- `slowQuery` is `true` if **any query** in the request was slow (performance warning)
+**Note**: For multi-query requests, the cache and performance information reflects the overall request behavior rather than individual query characteristics.
 
 ### In Prometheus Metrics
 
-The `cube_api_load_response_time` histogram includes a `cache_type` label:
+The `cube_api_load_response_time` histogram includes a `cache_type` label that indicates the type of cache used for each request. This allows you to monitor cache effectiveness and identify optimization opportunities.
+
+The `cache_type` label can have the following values:
+- `in_memory_cache`: LRU in-memory cache hit
+- `persistent_cache`: Persistent cache driver hit
+- `pre_aggregations_cube_store`: Pre-aggregation from Cube Store
+- `pre_aggregations_data_source`: Pre-aggregation from source database
+- `no_cache`: Direct database query without cache
 
 ```promql
 # Query response times by cache type
 cube_api_load_response_time_bucket{
   cache_type="pre_aggregations_cube_store",
+  query_type="regularQuery",
   tenant="default",
   api_type="rest"
 }
@@ -397,6 +402,13 @@ histogram_quantile(0.95,
   )
 )
 
+# P95 latency by query type
+histogram_quantile(0.95,
+  sum by (query_type, le) (
+    rate(cube_api_load_response_time_bucket[5m])
+  )
+)
+
 # Cache hit ratio (cached vs uncached)
 sum(rate(cube_api_load_response_time_count{
   cache_type!="no_cache"
@@ -414,6 +426,18 @@ sum(rate(cube_api_load_response_time_count[5m]))
 # Overall cache hit ratio
 sum(rate(cube_api_load_response_time_count{cache_type!="no_cache"}[5m])) 
 / sum(rate(cube_api_load_response_time_count[5m]))
+
+# Request rate by query type
+sum by (query_type) (
+  rate(cube_api_load_response_time_count[5m])
+)
+
+# Blending query performance
+histogram_quantile(0.95,
+  sum by (le) (
+    rate(cube_api_load_response_time_bucket{query_type="blendingQuery"}[5m])
+  )
+)
 ```
 
 ---

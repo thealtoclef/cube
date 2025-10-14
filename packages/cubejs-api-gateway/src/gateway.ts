@@ -625,7 +625,7 @@ class ApiGateway {
         };
         res(response);
         histogramMetric({
-          tenant: context.securityContext?.tenant || 'unknown',
+          tenant: context.securityContext?.tenant,
           extended: 'false',
           only_compiler_id: 'true',
           status: 'success',
@@ -640,14 +640,14 @@ class ApiGateway {
       }
       res(response);
       histogramMetric({
-        tenant: context.securityContext?.tenant || 'unknown',
+        tenant: context.securityContext?.tenant,
         extended: 'false',
         only_compiler_id: 'false',
         status: 'success',
       });
     } catch (e: any) {
       histogramMetric({
-        tenant: context.securityContext?.tenant || 'unknown',
+        tenant: context.securityContext?.tenant,
         extended: 'false',
         only_compiler_id: Boolean(onlyCompilerId).toString(),
         status: 'error',
@@ -692,14 +692,14 @@ class ApiGateway {
         }));
       res({ cubes });
       histogramMetric({
-        tenant: context.securityContext?.tenant || 'unknown',
+        tenant: context.securityContext?.tenant,
         extended: 'true',
         only_compiler_id: 'false',
         status: 'success',
       });
     } catch (e: any) {
       histogramMetric({
-        tenant: context.securityContext?.tenant || 'unknown',
+        tenant: context.securityContext?.tenant,
         extended: 'true',
         only_compiler_id: 'false',
         status: 'error',
@@ -2016,6 +2016,7 @@ class ApiGateway {
 
       // Get metadata from the first result (primary query)
       const primaryResult = results[0].getRootResultObject()[0];
+      const { dataSource, dbType, extDbType, external, lastRefreshTime, cacheType } = primaryResult;
 
       this.log(
         {
@@ -2032,12 +2033,12 @@ class ApiGateway {
             results.filter(
               (r: any) => Object.keys(r.getRootResultObject()[0].usedPreAggregations || {}).length
             ).length,
-          dataSource: primaryResult.dataSource,
-          dbType: primaryResult.dbType,
-          extDbType: primaryResult.extDbType,
-          external: primaryResult.external,
-          lastRefreshTime: primaryResult.lastRefreshTime,
-          cacheType: primaryResult.cacheType,
+          dataSource,
+          dbType,
+          extDbType,
+          external,
+          lastRefreshTime,
+          cacheType,
           slowQuery,
         },
         context,
@@ -2055,6 +2056,8 @@ class ApiGateway {
       histogramMetric({
         tenant: context.securityContext.tenant,
         api_type: apiType,
+        query_type: queryType,
+        cache_type: cacheType,
         slow_query: slowQuery.toString(),
         query_count: results.length.toString(),
         is_playground: Boolean(context.signedWithPlaygroundAuthSecret).toString(),
@@ -2062,10 +2065,8 @@ class ApiGateway {
       });
     } catch (e: any) {
       histogramMetric({
-        tenant: context.securityContext?.tenant || 'unknown',
+        tenant: context.securityContext?.tenant,
         api_type: apiType,
-        slow_query: 'false',
-        query_count: '0',
         is_playground: Boolean(context?.signedWithPlaygroundAuthSecret).toString(),
         status: 'error',
       });
@@ -2084,6 +2085,9 @@ class ApiGateway {
     } = request;
     const histogramMetric = loadResponseTime.startTimer();
     const requestStarted = new Date();
+
+    const rawSql = Boolean(request.sqlQuery);
+    let cacheType = 'no_cache';
 
     try {
       await this.assertApiScope('data', context.securityContext);
@@ -2180,6 +2184,24 @@ class ApiGateway {
           }];
         }
 
+        this.log(
+          {
+            type: 'Load Request Success',
+            query,
+            duration: this.duration(requestStarted),
+            apiType,
+            queryType,
+            cacheType,
+            isPlayground: Boolean(
+              context.signedWithPlaygroundAuthSecret
+            ),
+            queryCount: results.length,
+            rawSql,
+            slowQuery,
+          },
+          context,
+        );
+
         await res(request.streaming ? results[0] : { results });
       } else {
         results = await Promise.all(
@@ -2217,6 +2239,8 @@ class ApiGateway {
 
         // Get metadata from the first result (primary query)
         const primaryResult = results[0].getRootResultObject()[0];
+        const { dataSource, dbType, extDbType, external, lastRefreshTime } = primaryResult;
+        cacheType = primaryResult.cacheType;
 
         this.log(
           {
@@ -2233,12 +2257,13 @@ class ApiGateway {
               results.filter(
                 (r: any) => Object.keys(r.getRootResultObject()[0].usedPreAggregations || {}).length
               ).length,
-            dataSource: primaryResult.dataSource,
-            dbType: primaryResult.dbType,
-            extDbType: primaryResult.extDbType,
-            external: primaryResult.external,
-            lastRefreshTime: primaryResult.lastRefreshTime,
-            cacheType: primaryResult.cacheType,
+            dataSource,
+            dbType,
+            extDbType,
+            external,
+            lastRefreshTime,
+            cacheType,
+            rawSql,
             slowQuery,
           },
           context,
@@ -2256,6 +2281,9 @@ class ApiGateway {
       histogramMetric({
         tenant: context.securityContext.tenant,
         api_type: apiType,
+        query_type: queryType,
+        cache_type: cacheType,
+        raw_sql: rawSql.toString(),
         slow_query: slowQuery.toString(),
         query_count: results.length.toString(),
         is_playground: Boolean(context.signedWithPlaygroundAuthSecret).toString(),
@@ -2263,10 +2291,9 @@ class ApiGateway {
       });
     } catch (e: any) {
       histogramMetric({
-        tenant: context.securityContext?.tenant || 'unknown',
+        tenant: context.securityContext?.tenant,
         api_type: apiType,
-        slow_query: 'false',
-        query_count: '0',
+        raw_sql: rawSql.toString(),
         is_playground: Boolean(context?.signedWithPlaygroundAuthSecret).toString(),
         status: 'error',
       });

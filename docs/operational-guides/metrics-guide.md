@@ -74,7 +74,20 @@ AsyncLocalStorage automatically cleans up when execution completes
 
 **Labels**:
 - `tenant`: Tenant identifier extracted from JWT (`securityContext.tenant`)
-- `api_type`: API interface - `"rest"` or `"graphql"`
+- `api_type`: API interface - `"rest"`, `"sql"`, or `"graphql"`
+- `query_type`: Type of query execution:
+  - `"regularQuery"`: Standard single query
+  - `"blendingQuery"`: Multi-query data blending
+  - `"compareDateRangeQuery"`: Date range comparison query
+- `cache_type`: Type of cache used:
+  - `"in_memory_cache"`: LRU in-memory cache hit
+  - `"persistent_cache"`: Persistent cache driver hit (LocalCacheDriver or CubeStoreCacheDriver)
+  - `"pre_aggregations_cube_store"`: Pre-aggregation from Cube Store
+  - `"pre_aggregations_data_source"`: Pre-aggregation from source database
+  - `"no_cache"`: Direct database query without cache (includes raw SQL queries)
+- `raw_sql`: Indicates if this is a raw SQL query:
+  - `"true"`: Raw SQL query (bypasses Cube query processing and caching)
+  - `"false"`: Normal Cube query (goes through query orchestrator)
 - `slow_query`: `"true"` if query is identified as slow, `"false"` otherwise
 - `query_count`: Number of queries in request (as string: `"1"`, `"2"`, `"3"`, etc.)
 - `is_playground`: `"true"` if request from Cube Playground, `"false"` for production
@@ -85,9 +98,13 @@ AsyncLocalStorage automatically cleans up when execution completes
 **Use Cases**:
 - ✅ Monitor overall API performance and SLA compliance
 - ✅ Identify slow queries affecting user experience
+- ✅ Track cache effectiveness via `cache_type` label
+- ✅ Compare performance across different query types (regular, blending, date comparison)
 - ✅ Track query volume patterns via `query_count`
 - ✅ Distinguish playground usage from production traffic
 - ✅ Monitor API error rates with `status` label
+- ✅ Optimize caching strategies by monitoring cache hit rates
+- ✅ Monitor raw SQL query usage via `raw_sql` label to identify cache bypass patterns
 
 **Alert Thresholds**:
 - Warning: p95 > 5s
@@ -114,7 +131,7 @@ AsyncLocalStorage automatically cleans up when execution completes
 - `tenant`: Extracted from `securityContext.tenant` via AsyncLocalStorage
   - For regular API requests: Extracted from JWT token
   - For scheduled refresh queries: Labeled as `"scheduler"` (detected via `requestId` starting with `"scheduler-"`)
-  - If no tenant is available: Labeled as `"unknown"`
+  - If no tenant is available: Label is not set
 - `data_source`: From query options (`opts.dataSource`), defaults to `"default"`
 - `external`: Query routing indicator:
   - `"true"`: Query executed against CubeStore/external data source
@@ -191,23 +208,44 @@ AsyncLocalStorage automatically cleans up when execution completes
 ## Example Prometheus Output
 
 ```prometheus
-# Example: Source database query
+# Example: API Load Response Time - Cache Hit
+cube_api_load_response_time_bucket{le="0.1",tenant="customer-123",api_type="rest",query_type="regularQuery",cache_type="in_memory_cache",raw_sql="false",slow_query="false",query_count="1",is_playground="false",status="success"} 1
+cube_api_load_response_time_sum{tenant="customer-123",api_type="rest",query_type="regularQuery",cache_type="in_memory_cache",raw_sql="false",slow_query="false",query_count="1",is_playground="false",status="success"} 0.045
+cube_api_load_response_time_count{tenant="customer-123",api_type="rest",query_type="regularQuery",cache_type="in_memory_cache",raw_sql="false",slow_query="false",query_count="1",is_playground="false",status="success"} 1
+
+# Example: API Load Response Time - Pre-Aggregation
+cube_api_load_response_time_bucket{le="1",tenant="customer-123",api_type="rest",query_type="regularQuery",cache_type="pre_aggregations_cube_store",raw_sql="false",slow_query="false",query_count="1",is_playground="false",status="success"} 1
+cube_api_load_response_time_sum{tenant="customer-123",api_type="rest",query_type="regularQuery",cache_type="pre_aggregations_cube_store",raw_sql="false",slow_query="false",query_count="1",is_playground="false",status="success"} 0.823
+cube_api_load_response_time_count{tenant="customer-123",api_type="rest",query_type="regularQuery",cache_type="pre_aggregations_cube_store",raw_sql="false",slow_query="false",query_count="1",is_playground="false",status="success"} 1
+
+# Example: API Load Response Time - Blending Query
+cube_api_load_response_time_bucket{le="5",tenant="customer-123",api_type="rest",query_type="blendingQuery",cache_type="persistent_cache",raw_sql="false",slow_query="false",query_count="2",is_playground="false",status="success"} 1
+cube_api_load_response_time_sum{tenant="customer-123",api_type="rest",query_type="blendingQuery",cache_type="persistent_cache",raw_sql="false",slow_query="false",query_count="2",is_playground="false",status="success"} 3.451
+cube_api_load_response_time_count{tenant="customer-123",api_type="rest",query_type="blendingQuery",cache_type="persistent_cache",raw_sql="false",slow_query="false",query_count="2",is_playground="false",status="success"} 1
+
+# Example: API Load Response Time - Raw SQL Query
+cube_api_load_response_time_bucket{le="2",tenant="customer-123",api_type="sql",query_type="regularQuery",cache_type="no_cache",raw_sql="true",slow_query="false",query_count="1",is_playground="false",status="success"} 1
+cube_api_load_response_time_sum{tenant="customer-123",api_type="sql",query_type="regularQuery",cache_type="no_cache",raw_sql="true",slow_query="false",query_count="1",is_playground="false",status="success"} 1.234
+cube_api_load_response_time_count{tenant="customer-123",api_type="sql",query_type="regularQuery",cache_type="no_cache",raw_sql="true",slow_query="false",query_count="1",is_playground="false",status="success"} 1
+
+# Example: Query Execution Time - Source database query
 cube_query_execution_time_bucket{le="4",tenant="customer-123",data_source="default",external="false",status="success"} 1
 cube_query_execution_time_sum{tenant="customer-123",data_source="default",external="false",status="success"} 3.216
 cube_query_execution_time_count{tenant="customer-123",data_source="default",external="false",status="success"} 1
 
-# Example: CubeStore query
+# Example: Query Execution Time - CubeStore query
 cube_query_execution_time_bucket{le="0.1",tenant="customer-123",data_source="default",external="true",status="success"} 1
 cube_query_execution_time_sum{tenant="customer-123",data_source="default",external="true",status="success"} 0.087
 cube_query_execution_time_count{tenant="customer-123",data_source="default",external="true",status="success"} 1
 
-# Example: Multiple queries from source database
-cube_query_execution_time_bucket{le="0.05",tenant="customer-123",data_source="default",external="false",status="success"} 15
-cube_query_execution_time_sum{tenant="customer-123",data_source="default",external="false",status="success"} 0.342
-cube_query_execution_time_count{tenant="customer-123",data_source="default",external="false",status="success"} 15
+# Example: Metric without tenant label (e.g., internal system request)
+cube_api_load_response_time_bucket{le="0.5",api_type="rest",query_type="regularQuery",cache_type="in_memory_cache",raw_sql="false",slow_query="false",query_count="1",is_playground="false",status="success"} 1
 ```
 
-**Note**: The `tenant` value is dynamically extracted from each request's JWT token and will vary based on the authenticated user/tenant.
+**Note**:
+- When tenant is available, it's extracted from the request's JWT token
+- When tenant is not available (e.g., internal requests), the tenant label is omitted entirely
+- Use `tenant=""` or `tenant!=""` in Prometheus/Grafana queries to filter metrics without tenant labels
 
 ## Implementation Details
 
@@ -246,7 +284,7 @@ public async executeWithContext<T>(context: RequestContext, fn: () => Promise<T>
 onQueryComplete: (query, values, opts, duration, error) => {
   try {
     const storedContext = this.requestContextStorage.getStore();
-    const tenant = storedContext?.securityContext?.tenant || 'unknown';
+    const tenant = storedContext?.securityContext?.tenant;
 
     const queryLabels = {
       tenant,
@@ -342,6 +380,85 @@ return queryPromise;
 
 These queries assume standard Prometheus histogram functions. Adjust time ranges and thresholds based on your requirements.
 
+#### API Load Response Time Queries
+
+**P95 API response time by cache type**:
+```promql
+histogram_quantile(0.95, 
+  sum by(cache_type, le) (rate(cube_api_load_response_time_bucket[5m]))
+)
+```
+
+**Cache hit rate (in-memory + persistent)**:
+```promql
+sum(rate(cube_api_load_response_time_count{cache_type=~"in_memory_cache|persistent_cache"}[5m]))
+/ 
+sum(rate(cube_api_load_response_time_count[5m]))
+* 100
+```
+
+**P95 response time by query type**:
+```promql
+histogram_quantile(0.95, 
+  sum by(query_type, le) (rate(cube_api_load_response_time_bucket[5m]))
+)
+```
+
+**Blending query performance**:
+```promql
+histogram_quantile(0.95, 
+  sum by(le) (rate(cube_api_load_response_time_bucket{query_type="blendingQuery"}[5m]))
+)
+```
+
+**No-cache queries (opportunities for optimization)**:
+```promql
+rate(cube_api_load_response_time_count{cache_type="no_cache"}[5m])
+```
+
+**API error rate by tenant**:
+```promql
+sum by(tenant) (rate(cube_api_load_response_time_count{status="error"}[5m]))
+/ 
+sum by(tenant) (rate(cube_api_load_response_time_count[5m]))
+* 100
+```
+
+**Request rate by API type and query type**:
+```promql
+sum by(api_type, query_type) (rate(cube_api_load_response_time_count[5m]))
+```
+
+**Slow query rate**:
+```promql
+sum(rate(cube_api_load_response_time_count{slow_query="true"}[5m]))
+/ 
+sum(rate(cube_api_load_response_time_count[5m]))
+* 100
+```
+
+**Raw SQL query rate (bypassing cache)**:
+```promql
+sum(rate(cube_api_load_response_time_count{raw_sql="true"}[5m]))
+/ 
+sum(rate(cube_api_load_response_time_count[5m]))
+* 100
+```
+
+**Raw SQL query volume by tenant**:
+```promql
+sum by(tenant) (rate(cube_api_load_response_time_count{raw_sql="true"}[5m]))
+```
+
+**P95 response time comparison: Raw SQL vs Normal queries**:
+```promql
+histogram_quantile(0.95,
+  sum by(raw_sql, le) (rate(cube_api_load_response_time_bucket[5m]))
+)
+```
+
+#### Query Execution Time Queries
+
 **Average query duration (all queries)**:
 ```promql
 rate(cube_query_execution_time_sum[5m]) 
@@ -422,6 +539,78 @@ Example Prometheus alert rules. Customize thresholds and conditions based on you
 
 ```yaml
 groups:
+  - name: cube_api_alerts
+    rules:
+      - alert: HighAPIResponseTime
+        expr: |
+          histogram_quantile(0.95, rate(cube_api_load_response_time_bucket[5m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High API response time"
+          description: "P95 API response time is {{ $value }}s (threshold: 5s)"
+
+      - alert: LowCacheHitRate
+        expr: |
+          sum(rate(cube_api_load_response_time_count{cache_type=~"in_memory_cache|persistent_cache"}[5m]))
+          / 
+          sum(rate(cube_api_load_response_time_count[5m])) < 0.3
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low cache hit rate"
+          description: "Cache hit rate is {{ $value | humanizePercentage }} (threshold: 30%)"
+
+      - alert: HighNoCacheQueryRate
+        expr: |
+          sum(rate(cube_api_load_response_time_count{cache_type="no_cache"}[5m]))
+          / 
+          sum(rate(cube_api_load_response_time_count[5m])) > 0.5
+        for: 15m
+        labels:
+          severity: info
+        annotations:
+          summary: "High no-cache query rate"
+          description: "{{ $value | humanizePercentage }} of queries are bypassing cache (consider adding pre-aggregations)"
+
+      - alert: HighAPIErrorRate
+        expr: |
+          sum(rate(cube_api_load_response_time_count{status="error"}[5m])) by (tenant)
+          / 
+          sum(rate(cube_api_load_response_time_count[5m])) by (tenant) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High API error rate for tenant {{ $labels.tenant }}"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 5%)"
+
+      - alert: SlowBlendingQueries
+        expr: |
+          histogram_quantile(0.95, 
+            sum by(le) (rate(cube_api_load_response_time_bucket{query_type="blendingQuery"}[5m]))
+          ) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow blending queries detected"
+          description: "P95 blending query time is {{ $value }}s (threshold: 10s)"
+
+      - alert: HighRawSQLQueryRate
+        expr: |
+          sum(rate(cube_api_load_response_time_count{raw_sql="true"}[5m]))
+          / 
+          sum(rate(cube_api_load_response_time_count[5m])) > 0.5
+        for: 15m
+        labels:
+          severity: info
+        annotations:
+          summary: "High raw SQL query rate"
+          description: "{{ $value | humanizePercentage }} of queries are using raw SQL (bypassing Cube's caching and optimizations)"
+
   - name: cube_query_alerts
     rules:
       - alert: HighQueryDuration
@@ -484,7 +673,7 @@ If you need to track all API requests including HTTP cache hits, consider adding
 ### Error Handling
 
 - Metrics errors are caught and logged but never interfere with query execution
-- Missing tenant defaults to "unknown" - queries still execute normally
+- Missing tenant results in no tenant label - queries still execute normally
 - Callback errors are logged through Cube's standard logger
 
 ### Scalability
@@ -495,7 +684,7 @@ If you need to track all API requests including HTTP cache hits, consider adding
 
 ## Troubleshooting
 
-### Tenant shows as "unknown"
+### Missing tenant label
 
 **Possible causes**:
 1. JWT doesn't contain `tenant` claim
@@ -506,6 +695,15 @@ If you need to track all API requests including HTTP cache hits, consider adding
 - Verify JWT contains `tenant` claim
 - Check security context extraction in auth middleware
 - Review error logs for context retrieval failures
+
+**Filtering in Grafana/Prometheus**:
+```promql
+# Filter out metrics without tenant
+sum(rate(cube_api_load_response_time_count{tenant!=""}[5m]))
+
+# Show only metrics without tenant
+sum(rate(cube_api_load_response_time_count{tenant=""}[5m]))
+```
 
 ### Metrics not appearing
 

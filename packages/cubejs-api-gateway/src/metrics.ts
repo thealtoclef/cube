@@ -45,7 +45,7 @@ const QUERY_EXECUTION_BUCKETS = [
 export const loadResponseTime = new Histogram({
   name: 'cube_api_load_response_time',
   help: 'Duration of load response in seconds',
-  labelNames: ['tenant', 'api_type', 'slow_query', 'query_count', 'is_playground', 'status'] as const,
+  labelNames: ['tenant', 'api_type', 'query_type', 'cache_type', 'raw_sql', 'slow_query', 'query_count', 'is_playground', 'status'] as const,
   buckets: API_RESPONSE_BUCKETS
 });
 

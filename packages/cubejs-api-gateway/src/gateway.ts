@@ -1871,6 +1871,7 @@ class ApiGateway {
       external: response.external,
       slowQuery: Boolean(response.slowQuery),
       total: normalizedQuery.total ? response.total : null,
+      cacheType: response.cacheType,
     };
 
     resultWrapper.setTransformData(transformDataParams);
@@ -2013,25 +2014,31 @@ class ApiGateway {
         })
       );
 
+      // Get metadata from the first result (primary query)
+      const primaryResult = results[0].getRootResultObject()[0];
+
       this.log(
         {
           type: 'Load Request Success',
           query,
           duration: this.duration(requestStarted),
           apiType,
+          queryType,
           isPlayground: Boolean(
             context.signedWithPlaygroundAuthSecret
           ),
-          queries: results.length,
-          queriesWithPreAggregations:
+          queryCount: results.length,
+          queryWithPreAggregations:
             results.filter(
               (r: any) => Object.keys(r.getRootResultObject()[0].usedPreAggregations || {}).length
             ).length,
-          // Have to omit because data could be processed natively
-          // so it is not known at this point
-          // queriesWithData:
-          //   results.filter((r: any) => r.data?.length).length,
-          dbType: results.map(r => r.getRootResultObject()[0].dbType),
+          dataSource: primaryResult.dataSource,
+          dbType: primaryResult.dbType,
+          extDbType: primaryResult.extDbType,
+          external: primaryResult.external,
+          lastRefreshTime: primaryResult.lastRefreshTime,
+          cacheType: primaryResult.cacheType,
+          slowQuery,
         },
         context,
       );
@@ -2073,6 +2080,7 @@ class ApiGateway {
     const {
       context,
       res,
+      apiType,
     } = request;
     const histogramMetric = loadResponseTime.startTimer();
     const requestStarted = new Date();
@@ -2086,6 +2094,12 @@ class ApiGateway {
       if (!Array.isArray(query) && query.responseFormat) {
         resType = query.responseFormat;
       }
+
+      this.log({
+        type: 'Load Request',
+        apiType,
+        query
+      }, context);
 
       const [queryType, normalizedQueries] =
         await this.getNormalizedQueries(query, context, request.streaming, request.memberExpressions);
@@ -2201,6 +2215,35 @@ class ApiGateway {
           })
         );
 
+        // Get metadata from the first result (primary query)
+        const primaryResult = results[0].getRootResultObject()[0];
+
+        this.log(
+          {
+            type: 'Load Request Success',
+            query,
+            duration: this.duration(requestStarted),
+            apiType,
+            queryType,
+            isPlayground: Boolean(
+              context.signedWithPlaygroundAuthSecret
+            ),
+            queryCount: results.length,
+            queryWithPreAggregations:
+              results.filter(
+                (r: any) => Object.keys(r.getRootResultObject()[0].usedPreAggregations || {}).length
+              ).length,
+            dataSource: primaryResult.dataSource,
+            dbType: primaryResult.dbType,
+            extDbType: primaryResult.extDbType,
+            external: primaryResult.external,
+            lastRefreshTime: primaryResult.lastRefreshTime,
+            cacheType: primaryResult.cacheType,
+            slowQuery,
+          },
+          context,
+        );
+
         if (request.streaming) {
           await res(results[0]);
         } else {
@@ -2212,7 +2255,7 @@ class ApiGateway {
 
       histogramMetric({
         tenant: context.securityContext.tenant,
-        api_type: request.apiType,
+        api_type: apiType,
         slow_query: slowQuery.toString(),
         query_count: results.length.toString(),
         is_playground: Boolean(context.signedWithPlaygroundAuthSecret).toString(),
@@ -2221,7 +2264,7 @@ class ApiGateway {
     } catch (e: any) {
       histogramMetric({
         tenant: context.securityContext?.tenant || 'unknown',
-        api_type: request.apiType,
+        api_type: apiType,
         slow_query: 'false',
         query_count: '0',
         is_playground: Boolean(context?.signedWithPlaygroundAuthSecret).toString(),

@@ -96,6 +96,8 @@ export const prodLogger = (level) => (msg, params) => {
     case 'info':
       if ([
         'REST API Request',
+        'Load Request',
+        'Load Request Success',
       ].includes(msg)) {
         logMessage();
         break;

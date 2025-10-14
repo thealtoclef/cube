@@ -1,4 +1,5 @@
 export * from './BaseQueueDriver';
+export * from './CacheType';
 export * from './ContinueWaitError';
 export * from './LocalCacheDriver';
 export * from './LocalQueueDriver';

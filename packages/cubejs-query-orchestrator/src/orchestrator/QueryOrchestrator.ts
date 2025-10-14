@@ -13,6 +13,7 @@ import { QueryCache, QueryBody, TempTable, PreAggTableToTempTable, QueryWithPara
 import { PreAggregations, PreAggregationDescription, getLastUpdatedAtTimestamp } from './PreAggregations';
 import { DriverFactory, DriverFactoryByDataSource } from './DriverFactory';
 import { QueryStream } from './QueryStream';
+import { determineCacheType } from './CacheType';
 
 export type CacheAndQueryDriverType = 'memory' | 'cubestore' | /** removed, used for exception */ 'redis';
 
@@ -287,12 +288,21 @@ export class QueryOrchestrator {
       return result;
     }
 
+    // Determine cache type based on query execution metadata
+    const cacheType = determineCacheType({
+      usedPreAggregations,
+      external: queryBody.external,
+      fromCache: result.fromCache !== undefined ? result.fromCache : false,
+      fromInMemoryCache: result.fromInMemoryCache !== undefined ? result.fromInMemoryCache : false,
+    });
+
     return {
       ...result,
       dataSource: queryBody.dataSource,
       external: queryBody.external,
       usedPreAggregations,
       lastRefreshTime: lastRefreshTimestamp && new Date(lastRefreshTimestamp),
+      cacheType,
     };
   }
 

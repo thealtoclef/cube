@@ -43,6 +43,7 @@ import {
   createDriver,
   getDriverMaxPool,
 } from './DriverResolvers';
+import { RequestAuditPublisher, PubSubPublisher } from './RequestAuditPublisher';
 
 import type {
   CreateOptions,
@@ -152,6 +153,8 @@ export class CubejsServerCore {
 
   protected optsHandler: OptsHandler;
 
+  protected requestAuditPublisher?: RequestAuditPublisher;
+
   protected preAgentLogger: any;
 
   protected readonly options: ServerCoreInitializedOptions;
@@ -236,6 +239,17 @@ export class CubejsServerCore {
     }
 
     this.startScheduledRefreshTimer();
+
+    // Initialize request audit publisher if configured
+    if (process.env.CUBEJS_REQUEST_AUDIT_PUBSUB_TOPIC) {
+      try {
+        this.requestAuditPublisher = PubSubPublisher.create();
+      } catch (e: any) {
+        this.logger('Request Audit Publisher Initialization Failed', {
+          error: e.message,
+        });
+      }
+    }
 
     this.event = async (event, props: LoggerFnParams) => {
       if (!this.options.telemetry) {
@@ -495,6 +509,7 @@ export class CubejsServerCore {
         gatewayPort: this.options.gatewayPort,
         event: this.event,
         serverCore: this,
+        requestAuditPublisher: this.requestAuditPublisher,
       }
     ));
   }
@@ -938,6 +953,11 @@ export class CubejsServerCore {
     }
 
     this.compilerCache.clear();
+
+    // Shutdown request audit publisher
+    if (this.requestAuditPublisher) {
+      await this.requestAuditPublisher.close();
+    }
 
     if (this.scheduledRefreshTimerInterval) {
       await this.scheduledRefreshTimerInterval.cancel();

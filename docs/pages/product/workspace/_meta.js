@@ -16,6 +16,7 @@ module.exports = {
   "access-control": "Access Control",
   "sso": "Authentication & SSO",
   "audit-log": "Audit Log",
+  "request-audit-pubsub": "Request Audit with Pub/Sub",
   "encryption-keys": "Encryption keys",
   "budgets": "Budgets",
   "preferences": "Preferences",

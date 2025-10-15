@@ -2171,6 +2171,17 @@ const variables: Record<string, (...args: any) => any> = {
   fastReload: () => get('CUBEJS_FAST_RELOAD_ENABLED')
     .default('false')
     .asBoolStrict(),
+  // Request Audit configuration
+  requestAuditPubSubProjectId: () => get('CUBEJS_REQUEST_AUDIT_PUBSUB_PROJECT_ID')
+    .asString(),
+  requestAuditPubSubTopic: () => get('CUBEJS_REQUEST_AUDIT_PUBSUB_TOPIC')
+    .asString(),
+  requestAuditPubSubMaxBatchBytes: () => get('CUBEJS_REQUEST_AUDIT_PUBSUB_MAX_BATCH_BYTES')
+    .asString(),
+  requestAuditPubSubMaxBatchEvents: () => get('CUBEJS_REQUEST_AUDIT_PUBSUB_MAX_BATCH_EVENTS')
+    .asString(),
+  requestAuditPubSubFlushIntervalMs: () => get('CUBEJS_REQUEST_AUDIT_PUBSUB_FLUSH_INTERVAL_MS')
+    .asString(),
 };
 
 type Vars = typeof variables;

@@ -77,6 +77,7 @@ interface ApiGatewayOptions {
   contextToApiScopes?: ContextToApiScopesFn;
   event?: (name: string, props?: object) => void;
   serverCore?: any;
+  requestAuditPublisher?: any;
 }
 
 export {

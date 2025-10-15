@@ -1,0 +1,734 @@
+# Request Audit with Google Pub/Sub
+
+Cube Core can publish comprehensive audit events of all API requests and responses to Google Pub/Sub, providing a complete audit trail for compliance, monitoring, and analytics.
+
+**Note**: Request Audit is disabled by default. You must configure both the project ID and topic name to enable the feature.
+
+## Overview
+
+The Request Audit feature captures:
+- **Request events** - When queries are received
+- **Response events** - Query results (success, still processing, or errors)
+- **Complete context** - Query details, security context, performance metrics, and cache information
+
+All events are published asynchronously to Google Pub/Sub without impacting query performance.
+
+## Use Cases
+
+- **Compliance & Audit** - Complete trail of all data access for regulatory requirements
+- **Performance Monitoring** - Track query latency, cache effectiveness, and slow queries
+- **Security Investigation** - Analyze access patterns and detect anomalies
+- **Usage Analytics** - Understand query patterns and user behavior
+
+## Architecture
+
+```
+┌─────────────────┐
+│  Cube API       │
+│  (Load Request) │
+└────────┬────────┘
+         │
+         ├──→ Process Query
+         │
+         ├──→ Publish Request Event to Pub/Sub
+         │    (non-blocking, async)
+         │
+         ├──→ Execute Query
+         │
+         └──→ Publish Response Event to Pub/Sub
+              - Success (with cache metrics)
+              - Continue Wait (still processing)
+              - Error (with error details)
+```
+
+## Setup
+
+### Local Development with Emulator
+
+For local testing, you can use the Google Pub/Sub emulator instead of real GCP infrastructure:
+
+**1. Add to docker-compose.yml:**
+
+```yaml
+services:
+  # Google Pub/Sub Emulator for local testing
+  pubsub_emulator:
+    image: messagebird/gcloud-pubsub-emulator:latest
+    ports:
+      - "8681:8681"
+    environment:
+      # Format: PROJECT_ID,topic1:subscription1,topic2:sub2a:sub2b
+      - PUBSUB_PROJECT1=cube-local,audit_requests:audit_requests-sub
+  
+  # Pub/Sub Emulator UI for monitoring messages
+  pubsub_emulator_ui:
+    image: ghcr.io/neoscript/pubsub-emulator-ui:latest
+    ports:
+      - "7200:80"
+    depends_on:
+      - pubsub_emulator
+  
+  cube_api:
+    # ... your cube configuration
+    depends_on:
+      - pubsub_emulator
+```
+
+**2. Configure environment variables:**
+
+```bash
+# Enable Request Audit (both variables are required)
+CUBEJS_REQUEST_AUDIT_PUBSUB_PROJECT_ID=cube-local
+CUBEJS_REQUEST_AUDIT_PUBSUB_TOPIC=audit_requests
+
+# Point to emulator
+PUBSUB_EMULATOR_HOST=pubsub_emulator:8681
+```
+
+**3. Start services and test:**
+
+```bash
+docker-compose up -d
+
+# Check initialization
+docker-compose logs cube_api | grep "Audit Event Publisher"
+
+# View messages in UI
+open http://localhost:7200
+```
+
+### Production Setup
+
+### Prerequisites
+
+1. **Google Cloud Project** with Pub/Sub API enabled
+2. **Service Account** with `roles/pubsub.publisher` permission
+3. **Pub/Sub Topic** created for audit logs
+
+### Step 1: Create Pub/Sub Topic
+
+```bash
+# Create the topic
+gcloud pubsub topics create audit_requests
+
+# Verify creation
+gcloud pubsub topics describe audit_requests
+```
+
+### Step 2: Configure Service Account
+
+```bash
+# Create service account (if not exists)
+gcloud iam service-accounts create cube-api \
+  --display-name="Cube API Service Account"
+
+# Grant publisher role
+gcloud pubsub topics add-iam-policy-binding audit_requests \
+  --member="serviceAccount:cube-api@PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/pubsub.publisher"
+
+# Create and download key (for local development)
+gcloud iam service-accounts keys create cube-api-key.json \
+  --iam-account=cube-api@PROJECT_ID.iam.gserviceaccount.com
+```
+
+### Step 3: Configure Cube
+
+Set environment variables in your Cube configuration:
+
+```bash
+# Required: Enable Request Audit (both variables are required)
+CUBEJS_REQUEST_AUDIT_PUBSUB_PROJECT_ID=your-gcp-project-id
+CUBEJS_REQUEST_AUDIT_PUBSUB_TOPIC=audit_requests
+
+# Note: Both CUBEJS_REQUEST_AUDIT_PUBSUB_PROJECT_ID and
+# CUBEJS_REQUEST_AUDIT_PUBSUB_TOPIC must be set to enable the feature
+
+# Optional: Batching configuration
+CUBEJS_REQUEST_AUDIT_PUBSUB_MAX_BATCH_BYTES=1048576        # Max bytes per batch (default: 1MB)
+CUBEJS_REQUEST_AUDIT_PUBSUB_MAX_BATCH_EVENTS=100           # Max events per batch (default: 100)
+CUBEJS_REQUEST_AUDIT_PUBSUB_FLUSH_INTERVAL_MS=10           # Max milliseconds before flush (default: 10ms)
+
+# For local development: Point to service account key
+GOOGLE_APPLICATION_CREDENTIALS=/path/to/cube-api-key.json
+```
+
+**For Production (GCP)**: Use [Workload Identity](https://cloud.google.com/kubernetes-engine/docs/how-to/workload-identity) or attach the service account to your compute instance. No credentials file needed.
+
+### Step 4: Verify Configuration
+
+Start Cube and check logs for:
+
+```
+Request Audit PubSub Publisher Initialized {
+  topic: 'audit_requests',
+  project: 'your-project-id',
+  maxBatchBytes: 'default (1MB)',
+  maxBatchEvents: 'default (100)',
+  flushIntervalMs: 'default (10ms)',
+  emulator: 'none'
+}
+```
+
+Run a test query and verify events are published:
+
+```bash
+# Check messages in topic
+gcloud pubsub subscriptions create cube-audit-test \
+  --topic=audit_requests
+
+gcloud pubsub subscriptions pull cube-audit-test --limit=5 --format=json
+```
+
+## Event Schema
+
+### Event Types
+
+There is **one event type** with different status values:
+
+- **`load`** - Published for all query lifecycle events with status field tracking
+
+### Load Event Schema
+
+Published for all load query events with different status values.
+
+```json
+{
+  "event_type": "load",
+  "event_id": "550e8400-e29b-41d4-a716-446655440000",
+  "event_created_at": "2025-10-11T12:34:56.000Z",
+  "request_id": "abc123-span-1",
+  "endpoint": "load",
+
+  "query": {
+    "measures": ["orders.count"],
+    "dimensions": ["orders.status"],
+    "timeDimensions": [{
+      "dimension": "orders.created_at",
+      "granularity": "day"
+    }]
+  },
+  "api_type": "rest",
+  "is_playground": false,
+  "security_context": {
+    "tenant": "acme-corp",
+    "user_id": "user-456"
+  },
+  "status": "received"
+}
+```
+
+**Fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `event_type` | string | Always `"load"` |
+| `event_id` | string | Unique identifier for this event (UUID) |
+| `event_created_at` | string | ISO8601 timestamp when event was created |
+| `request_id` | string | Request ID (correlates events for same query) |
+| `query` | object | The Cube query object |
+| `api_type` | string | API type: `rest`, `ws`, `graphql`, `sql`, or `streaming` |
+| `is_playground` | boolean | Whether request came from Playground |
+| `security_context` | object | Authentication/authorization context |
+| `status` | string | Event status: `acknowledged`, `success`, `continue_wait`, or `error` |
+
+### Event Status Examples
+
+The same event schema is used for all status values. The `status` field determines which additional fields are present.
+
+#### Status: `acknowledged`
+
+Published when a query is acknowledged:
+
+```json
+{
+  "event_type": "load",
+  "event_id": "550e8400-e29b-41d4-a716-446655440000",
+  "event_created_at": "2025-10-11T12:34:56.000Z",
+  "request_id": "abc123-span-1",
+  "query": { "measures": ["orders.count"] },
+  "api_type": "rest",
+  "is_playground": false,
+  "security_context": { "tenant": "acme-corp" },
+  "status": "acknowledged"
+}
+```
+
+#### Status: `success`
+
+Published when a query completes successfully:
+
+```json
+{
+  "event_type": "load",
+  "event_id": "550e8400-e29b-41d4-a716-446655440001",
+  "event_created_at": "2025-10-11T12:34:56.125Z",
+  "request_id": "abc123-span-1",
+  "query": { "measures": ["orders.count"] },
+  "api_type": "rest",
+  "is_playground": false,
+  "security_context": { "tenant": "acme-corp" },
+  "status": "success",
+  "duration": 125,
+  "start_time": "2025-10-11T12:34:56.000Z",
+  "query_type": "simple",
+  "query_count": 1,
+  "query_with_pre_aggregations": 1,
+  "cache_type": "pre_aggregations_cube_store",
+  "data_source": "default",
+  "db_type": "postgres",
+  "ext_db_type": "cubestore",
+  "external": true,
+  "last_refresh_time": "2025-10-11T12:30:00.000Z",
+  "slow_query": false
+}
+```
+
+#### Status: `continue_wait`
+
+When a query is still processing and the client should retry:
+
+```json
+{
+  "event_type": "load",
+  "event_id": "550e8400-e29b-41d4-a716-446655440001",
+  "event_created_at": "2025-10-11T12:34:58.000Z",
+  "request_id": "abc123-span-1",
+  "query": { "measures": ["orders.count"] },
+  "api_type": "rest",
+  "is_playground": false,
+  "security_context": { "tenant": "acme-corp" },
+  "status": "continue_wait",
+  "duration": 2000,
+  "start_time": "2025-10-11T12:34:56.000Z",
+  "error": "Continue wait"
+}
+```
+
+#### Status: `error`
+
+When a query fails:
+
+```json
+{
+  "event_type": "load",
+  "event_id": "550e8400-e29b-41d4-a716-446655440001",
+  "event_created_at": "2025-10-11T12:34:56.500Z",
+  "request_id": "abc123-span-1",
+  "query": { "measures": ["invalid.measure"] },
+  "api_type": "rest",
+  "is_playground": false,
+  "security_context": { "tenant": "acme-corp" },
+  "status": "error",
+  "duration": 500,
+  "start_time": "2025-10-11T12:34:56.000Z",
+  "error": "Measure 'invalid.measure' not found"
+}
+```
+
+**Additional Fields:**
+
+| Field | Type | When Present | Description |
+|-------|------|--------------|-------------|
+| `duration` | number | Not `received` | Total duration in milliseconds |
+| `start_time` | string | Not `received` | ISO8601 timestamp when request started |
+| | | | |
+| **Success Only** | | | |
+| `query_type` | string | Success | Query type (e.g., `simple`, `multi`, `blended`) |
+| `query_count` | number | Success | Number of queries in batch |
+| `query_with_pre_aggregations` | number | Success | Count using pre-aggregations |
+| `cache_type` | string | Success | See [Cache Types](/product/caching#cache-type) |
+| `data_source` | string | Success | Data source name |
+| `db_type` | string | Success | Database type (e.g., `postgres`, `bigquery`) |
+| `ext_db_type` | string | Success | External DB type (e.g., `cubestore`) |
+| `external` | boolean | Success | Whether query used external storage |
+| `last_refresh_time` | string | Success | When cache was last refreshed |
+| `slow_query` | boolean | Success | Whether query exceeded timeout threshold |
+| | | | |
+| **Error Only** | | | |
+| `error` | string | Error | Error message |
+
+## Consumer Examples
+
+### BigQuery Streaming Insert
+
+Create a BigQuery table and use Dataflow to stream audit logs:
+
+**1. Create BigQuery Table**
+
+```sql
+CREATE TABLE `project.dataset.cube_audit_logs` (
+  event_type STRING,
+  event_id STRING,
+  event_created_at TIMESTAMP,
+  request_id STRING,
+  query JSON,
+  api_type STRING,
+  is_playground BOOLEAN,
+  security_context JSON,
+  status STRING,
+
+  -- Timing fields
+  duration INT64,
+  start_time TIMESTAMP,
+
+  -- Success fields
+  query_type STRING,
+  query_count INT64,
+  query_with_pre_aggregations INT64,
+  cache_type STRING,
+  data_source STRING,
+  db_type STRING,
+  ext_db_type STRING,
+  external BOOLEAN,
+  last_refresh_time TIMESTAMP,
+  slow_query BOOLEAN,
+
+  -- Error field
+  error STRING
+)
+PARTITION BY DATE(event_created_at)
+CLUSTER BY api_type, status;
+```
+
+**2. Create Pub/Sub Subscription**
+
+```bash
+gcloud pubsub subscriptions create cube-audit-to-bq \
+  --topic=audit_requests \
+  --ack-deadline=60
+```
+
+**3. Start Dataflow Job**
+
+```bash
+gcloud dataflow jobs run audit-requests-to-bq \
+  --gcs-location=gs://dataflow-templates-us-central1/latest/PubSub_Subscription_to_BigQuery \
+  --region=us-central1 \
+  --parameters \
+inputSubscription=projects/PROJECT_ID/subscriptions/cube-audit-to-bq,\
+outputTableSpec=PROJECT_ID:dataset.cube_audit_logs
+```
+
+### ClickHouse Consumer
+
+Node.js consumer that writes to ClickHouse:
+
+```javascript
+const { PubSub } = require('@google-cloud/pubsub');
+const { ClickHouse } = require('clickhouse');
+
+const pubsub = new PubSub();
+const clickhouse = new ClickHouse({
+  url: 'http://localhost',
+  port: 8123,
+  database: 'analytics'
+});
+
+// Create table in ClickHouse
+const createTableSQL = `
+CREATE TABLE IF NOT EXISTS cube_audit_logs (
+  event_type String,
+  event_id String,
+  event_created_at DateTime64(3),
+  request_id String,
+  query String,
+  api_type String,
+  is_playground Boolean,
+  security_context String,
+  status String,
+  duration UInt32,
+  start_time DateTime64(3),
+  query_type String,
+  query_count UInt32,
+  query_with_pre_aggregations UInt32,
+  cache_type String,
+  data_source String,
+  db_type String,
+  ext_db_type String,
+  external Boolean,
+  last_refresh_time DateTime64(3),
+  slow_query Boolean,
+  error String
+) ENGINE = MergeTree()
+ORDER BY (event_created_at, request_id)
+PARTITION BY toYYYYMM(event_created_at);
+`;
+
+async function startConsumer() {
+  const subscription = pubsub.subscription('audit_requests-sub');
+  
+  subscription.on('message', async (message) => {
+    const event = JSON.parse(message.data.toString());
+    
+    // Transform and insert
+    await clickhouse.insert('INSERT INTO cube_audit_logs', [event]).toPromise();
+    
+    message.ack();
+  });
+}
+
+startConsumer();
+```
+
+## Analysis Patterns
+
+### Query Performance by Cache Type
+
+```sql
+-- Average latency by cache type (BigQuery)
+SELECT
+  cache_type,
+  COUNT(*) as query_count,
+  AVG(duration) as avg_duration_ms,
+  APPROX_QUANTILES(duration, 100)[OFFSET(50)] as p50_ms,
+  APPROX_QUANTILES(duration, 100)[OFFSET(95)] as p95_ms,
+  APPROX_QUANTILES(duration, 100)[OFFSET(99)] as p99_ms
+FROM `project.dataset.cube_audit_logs`
+WHERE event_type = 'load'
+  AND status = 'success'
+  AND event_created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)
+GROUP BY cache_type
+ORDER BY query_count DESC;
+```
+
+### Request Lifecycle Tracking
+
+```sql
+-- Track query lifecycle from acknowledged to completion
+SELECT
+  request_id,
+  status,
+  event_created_at as event_time,
+  duration,
+  CASE
+    WHEN status = 'acknowledged' THEN NULL
+    ELSE LAG(event_created_at) OVER (PARTITION BY request_id ORDER BY event_created_at)
+  END as previous_event_time,
+  JSON_VALUE(security_context, '$.tenant') as tenant
+FROM `project.dataset.cube_audit_logs`
+WHERE event_type = 'load'
+  AND event_created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 HOUR)
+ORDER BY request_id, event_created_at;
+```
+
+### Error Rate Monitoring
+
+```sql
+-- Error rate by hour
+SELECT
+  TIMESTAMP_TRUNC(event_created_at, HOUR) as hour,
+  COUNT(*) as total_requests,
+  COUNTIF(status = 'error') as errors,
+  COUNTIF(status = 'error') / COUNT(*) * 100 as error_rate_pct,
+  ARRAY_AGG(
+    error
+    ORDER BY event_created_at DESC
+    LIMIT 5
+  ) as sample_errors
+FROM `project.dataset.cube_audit_logs`
+WHERE event_type = 'load_response'
+  AND event_created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)
+GROUP BY hour
+ORDER BY hour DESC;
+```
+
+### User Activity Patterns
+
+```sql
+-- Top users by query volume
+SELECT
+  JSON_VALUE(security_context, '$.tenant') as tenant,
+  JSON_VALUE(security_context, '$.user_id') as user_id,
+  COUNT(*) as query_count,
+  COUNT(DISTINCT DATE(event_created_at)) as active_days,
+  AVG(duration) as avg_duration_ms,
+  COUNTIF(slow_query) as slow_queries
+FROM `project.dataset.cube_audit_logs`
+WHERE event_type = 'load_response'
+  AND status = 'success'
+  AND event_created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
+GROUP BY tenant, user_id
+HAVING query_count > 10
+ORDER BY query_count DESC
+LIMIT 50;
+```
+
+### Cache Effectiveness
+
+```sql
+-- Cache hit rate over time
+SELECT
+  DATE(event_created_at) as date,
+  COUNTIF(cache_type IN ('in_memory_cache', 'persistent_cache',
+                         'pre_aggregations_cube_store',
+                         'pre_aggregations_data_source')) as cached_queries,
+  COUNTIF(cache_type = 'no_cache') as uncached_queries,
+  COUNTIF(cache_type IN ('in_memory_cache', 'persistent_cache',
+                         'pre_aggregations_cube_store',
+                         'pre_aggregations_data_source'))
+    / COUNT(*) * 100 as cache_hit_rate_pct
+FROM `project.dataset.cube_audit_logs`
+WHERE event_type = 'load_response'
+  AND status = 'success'
+  AND event_created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
+GROUP BY date
+ORDER BY date DESC;
+```
+
+## Production Considerations
+
+### Performance Impact
+
+- **< 5ms overhead** per query for event publishing
+- **Non-blocking** - Uses fire-and-forget pattern
+- **Batched** - Events buffered based on configured settings (default: 100 messages or 10ms)
+- **No failures** - Publishing errors never impact queries
+
+### Cost Estimation
+
+Google Pub/Sub pricing (as of 2025):
+- **Message ingestion**: $40 per TB
+- **Message delivery**: $40 per TB
+- **Storage**: $0.27 per GB-month (retained messages)
+
+Example: 1 million queries/day ≈ 50GB/day ≈ **$4/day** ($120/month)
+
+### Data Retention
+
+Set Pub/Sub topic retention:
+
+```bash
+# 7 days retention (default)
+gcloud pubsub topics update audit_requests \
+  --message-retention-duration=7d
+
+# 30 days retention
+gcloud pubsub topics update audit_requests \
+  --message-retention-duration=30d
+```
+
+### Privacy & Security
+
+⚠️ **Security Context contains sensitive data**
+
+The `security_context` field may contain:
+- User IDs
+- Tenant identifiers  
+- Custom authentication claims
+- API keys or tokens (if improperly configured)
+
+**Recommendations:**
+1. **Sanitize** - Remove PII before publishing (requires code modification)
+2. **Access Control** - Restrict Pub/Sub subscription access via IAM
+3. **Data Governance** - Apply appropriate retention policies
+4. **Compliance** - Ensure audit logs meet regulatory requirements (GDPR, HIPAA, etc.)
+
+### Monitoring
+
+Monitor the Request Audit system:
+
+**1. Check Publisher Status**
+
+Look for these log entries:
+```
+Request Audit PubSub Publisher Initialized  // Should appear on startup
+Request Audit PubSub Publish Error                 // Should be rare
+```
+
+**2. Monitor Pub/Sub Metrics** (Cloud Console)
+
+- Message publish rate
+- Publish latency (p50, p95, p99)
+- Failed publish attempts
+- Subscription backlog
+
+**3. Alert on Anomalies**
+
+```bash
+# Create alert for high error rate
+gcloud alpha monitoring policies create \
+  --notification-channels=CHANNEL_ID \
+  --display-name="Cube Audit Log Errors" \
+  --condition-display-name="High publish error rate" \
+  --condition-threshold-value=10 \
+  --condition-threshold-duration=300s
+```
+
+## Troubleshooting
+
+### Events Not Publishing
+
+**Check 1: Verify configuration**
+
+```bash
+# Cube should log initialization
+docker logs cube-api | grep "Request Audit PubSub Publisher Initialized"
+```
+
+Expected output:
+```
+Request Audit PubSub Publisher Initialized {
+  topic: 'audit_requests',
+  project: 'your-project',
+  maxBatchBytes: 'default (1MB)',
+  maxBatchEvents: 'default (100)',
+  flushIntervalMs: 'default (10ms)',
+  emulator: 'none'
+}
+```
+
+**Check 2: Verify topic exists**
+
+```bash
+gcloud pubsub topics describe audit_requests
+```
+
+**Check 3: Verify permissions**
+
+```bash
+# Test publish permission
+gcloud pubsub topics publish audit_requests --message="test"
+```
+
+**Check 4: Check Cube logs for errors**
+
+```bash
+docker logs cube-api | grep "Request Audit PubSub Publish Error"
+```
+
+### High Latency
+
+If queries are slow:
+
+1. **Verify non-blocking** - Publishing should not block queries
+2. **Check batch configuration** - Adjust `CUBEJS_REQUEST_AUDIT_PUBSUB_MAX_BATCH_EVENTS`, `CUBEJS_REQUEST_AUDIT_PUBSUB_FLUSH_INTERVAL_MS`
+3. **Monitor Pub/Sub latency** - Check Cloud Console metrics
+
+### Message Loss
+
+Pub/Sub guarantees at-least-once delivery, but:
+
+1. **Check subscription** - Ensure subscription exists and is pulling messages
+2. **Check retention** - Messages expire after retention period (default: 7 days)
+3. **Check quotas** - Pub/Sub has rate limits per project
+
+## Environment Variables Reference
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `CUBEJS_REQUEST_AUDIT_PUBSUB_PROJECT_ID` | ✅ Yes | - | GCP project ID (required for PubSub client) |
+| `CUBEJS_REQUEST_AUDIT_PUBSUB_TOPIC` | ✅ Yes | - | Pub/Sub topic name (where events are published) |
+| `CUBEJS_REQUEST_AUDIT_PUBSUB_MAX_BATCH_BYTES` | ❌ No | `1048576` | Max bytes per batch (1MB) |
+| `CUBEJS_REQUEST_AUDIT_PUBSUB_MAX_BATCH_EVENTS` | ❌ No | `100` | Max events per batch |
+| `CUBEJS_REQUEST_AUDIT_PUBSUB_FLUSH_INTERVAL_MS` | ❌ No | `10` | Max milliseconds before flush |
+| `GOOGLE_APPLICATION_CREDENTIALS` | ❌ No | - | Path to service account key (local dev only) |
+
+## Related Documentation
+
+- [Caching Overview](/product/caching)
+- [Cache Types](/product/caching#cache-type)
+- [Query Format](/product/apis-integrations/rest-api/query-format)
+- [Security Context](/product/auth/context)
+- [Google Cloud Pub/Sub Documentation](https://cloud.google.com/pubsub/docs)
+

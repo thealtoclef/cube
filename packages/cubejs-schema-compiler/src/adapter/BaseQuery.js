@@ -3850,6 +3850,7 @@ export class BaseQuery {
       externalQueryClass: this.options.externalQueryClass,
       queryFactory: this.options.queryFactory,
       useNativeSqlPlanner: this.options.useNativeSqlPlanner,
+      convertTzForRawTimeDimension: this.options.convertTzForRawTimeDimension,
       ...options,
     };
   }
@@ -3919,7 +3920,9 @@ export class BaseQuery {
     );
     if (cubeNamesForTimeDimension.length === 1 && cubeNamesForTimeDimension[0] === cube) {
       const dimensionSql = this.dimensionSql(dimension);
-      return `select ${aggFunction}(${this.convertTz(dimensionSql)}) from ${this.cubeSql(cube)} ${this.asSyntaxTable} ${this.cubeAlias(cube)}`;
+      // [CAKE] Respect convertTzForRawTimeDimension option
+      const sqlWithTz = this.options.convertTzForRawTimeDimension ? this.convertTz(dimensionSql) : dimensionSql;
+      return `select ${aggFunction}(${sqlWithTz}) from ${this.cubeSql(cube)} ${this.asSyntaxTable} ${this.cubeAlias(cube)}`;
     }
     return null;
   }

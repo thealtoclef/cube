@@ -1872,6 +1872,7 @@ class ApiGateway {
       slowQuery: Boolean(response.slowQuery),
       total: normalizedQuery.total ? response.total : null,
       cacheType: response.cacheType,
+      requestId: context.requestId,
     };
 
     resultWrapper.setTransformData(transformDataParams);

@@ -255,23 +255,13 @@ The response includes cache and execution metadata at the root level:
 
 ```json
 {
-  "query": {
-    ...query fields...
-  },
-  "data": [ ... ],
-  "lastRefreshTime": "2025-10-11T12:34:56.789Z",
   "cacheType": "pre_aggregations_cube_store",
-  "dataSource": "default",
-  "dbType": "bigquery",
-  "extDbType": "cubestore",
-  "external": true,
-  "slowQuery": false,
-  "usedPreAggregations": { ... }
+  // ... other response fields
 }
 ```
 
 **Note**: For multi-query requests (data blending):
-- Descriptive metadata (`dataSource`, `dbType`, `cacheType`, `lastRefreshTime`) represents the **first (primary) query**
+- Descriptive metadata (`dataSource`, `dbType`, `cacheType`, `lastRefreshTime`, `requestId`) represents the **first (primary) query**
 - `slowQuery` is `true` if **any query** in the request was slow (performance warning)
 
 ### In Logs
@@ -281,22 +271,8 @@ Server logs include cache type information for each request:
 ```json
 {
   "message": "Load Request Success",
-  "query": { ... },
-  "duration": 125,
-  "apiType": "rest",
-  "queryType": "regularQuery",
-  "isPlayground": false,
-  "queryCount": 1,
-  "queryWithPreAggregations": 0,
-  "dataSource": "default",
-  "dbType": "bigquery",
-  "extDbType": "cubestore",
-  "external": false,
-  "lastRefreshTime": "2025-10-11T07:35:58.286Z",
-  "slowQuery": false,
   "cacheType": "persistent_cache",
-  "securityContext": {"tenant": "tea"},
-  "requestId": "137bdbc0-df7c-4100-a287-8fb9fa51a33c-span-1"
+  // ... other log fields
 }
 ```
 
@@ -606,7 +582,7 @@ interface QueryResponse {
 ```
 
 **Note**: For multi-query requests:
-- Descriptive metadata (`dataSource`, `dbType`, `cacheType`, `lastRefreshTime`) represents the **first (primary) query**
+- Descriptive metadata (`dataSource`, `dbType`, `cacheType`, `lastRefreshTime`, `requestId`) represents the **first (primary) query**
 - `slowQuery` is `true` if **any query** in the request was slow
 
 ---
@@ -619,21 +595,11 @@ When executing multiple queries in a single request (data blending or compare da
 
 ```json
 {
-  "query": [
-    {
-      "measures": ["Orders.count"],
-      "timeDimensions": [...]
-    },
-    {
-      "measures": ["Users.count"],
-      "timeDimensions": [...]
-    }
-  ],
-  "data": [...],  // Blended data from both queries
+  "query": [ /* multiple queries */ ],
+  "data": [ /* blended data */ ],
   "cacheType": "in_memory_cache",  // From first query only
-  "dataSource": "default",         // From first query only
-  "lastRefreshTime": "2025-10-14T12:03:05.489Z",  // From first query only
-  "slowQuery": false               // true if ANY query was slow
+  "requestId": "137bdbc0-df7c-4100-a287-8fb9fa51a33c",
+  // ... other response fields
 }
 ```
 
@@ -652,8 +618,7 @@ While the API response shows only the first query's metadata, server logs provid
   "queryType": "blendingQuery",
   "queryCount": 2,
   "cacheType": "in_memory_cache",  // First query's cache type
-  "duration": 125,
-  ...
+  // ... other log fields
 }
 ```
 

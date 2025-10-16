@@ -34,7 +34,6 @@ export interface RequestAuditEvent {
   // Success fields
   query_type?: string;
   query_count?: number;
-  query_with_pre_aggregations?: number;
   cache_type?: string;
   data_source?: string;
   db_type?: string;
@@ -138,7 +137,6 @@ export class PubSubPublisher implements RequestAuditPublisher {
       // Success fields
       query_type: data.query_type,
       query_count: data.query_count,
-      query_with_pre_aggregations: data.query_with_pre_aggregations,
       cache_type: data.cache_type,
       data_source: data.data_source,
       db_type: data.db_type,

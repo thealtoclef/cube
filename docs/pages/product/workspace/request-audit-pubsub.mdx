@@ -273,7 +273,6 @@ Published when a query completes successfully:
   "start_time": "2025-10-11T12:34:56.000Z",
   "query_type": "simple",
   "query_count": 1,
-  "query_with_pre_aggregations": 1,
   "cache_type": "pre_aggregations_cube_store",
   "data_source": "default",
   "db_type": "postgres",
@@ -336,7 +335,6 @@ When a query fails:
 | **Success Only** | | | |
 | `query_type` | string | Success | Query type (e.g., `simple`, `multi`, `blended`) |
 | `query_count` | number | Success | Number of queries in batch |
-| `query_with_pre_aggregations` | number | Success | Count using pre-aggregations |
 | `cache_type` | string | Success | See [Cache Types](/product/caching#cache-type) |
 | `data_source` | string | Success | Data source name |
 | `db_type` | string | Success | Database type (e.g., `postgres`, `bigquery`) |
@@ -347,129 +345,6 @@ When a query fails:
 | | | | |
 | **Error Only** | | | |
 | `error` | string | Error | Error message |
-
-## Consumer Examples
-
-### BigQuery Streaming Insert
-
-Create a BigQuery table and use Dataflow to stream audit logs:
-
-**1. Create BigQuery Table**
-
-```sql
-CREATE TABLE `project.dataset.cube_audit_logs` (
-  event_type STRING,
-  event_id STRING,
-  event_created_at TIMESTAMP,
-  request_id STRING,
-  query JSON,
-  api_type STRING,
-  is_playground BOOLEAN,
-  security_context JSON,
-  status STRING,
-
-  -- Timing fields
-  duration INT64,
-  start_time TIMESTAMP,
-
-  -- Success fields
-  query_type STRING,
-  query_count INT64,
-  query_with_pre_aggregations INT64,
-  cache_type STRING,
-  data_source STRING,
-  db_type STRING,
-  ext_db_type STRING,
-  external BOOLEAN,
-  last_refresh_time TIMESTAMP,
-  slow_query BOOLEAN,
-
-  -- Error field
-  error STRING
-)
-PARTITION BY DATE(event_created_at)
-CLUSTER BY api_type, status;
-```
-
-**2. Create Pub/Sub Subscription**
-
-```bash
-gcloud pubsub subscriptions create cube-audit-to-bq \
-  --topic=audit_requests \
-  --ack-deadline=60
-```
-
-**3. Start Dataflow Job**
-
-```bash
-gcloud dataflow jobs run audit-requests-to-bq \
-  --gcs-location=gs://dataflow-templates-us-central1/latest/PubSub_Subscription_to_BigQuery \
-  --region=us-central1 \
-  --parameters \
-inputSubscription=projects/PROJECT_ID/subscriptions/cube-audit-to-bq,\
-outputTableSpec=PROJECT_ID:dataset.cube_audit_logs
-```
-
-### ClickHouse Consumer
-
-Node.js consumer that writes to ClickHouse:
-
-```javascript
-const { PubSub } = require('@google-cloud/pubsub');
-const { ClickHouse } = require('clickhouse');
-
-const pubsub = new PubSub();
-const clickhouse = new ClickHouse({
-  url: 'http://localhost',
-  port: 8123,
-  database: 'analytics'
-});
-
-// Create table in ClickHouse
-const createTableSQL = `
-CREATE TABLE IF NOT EXISTS cube_audit_logs (
-  event_type String,
-  event_id String,
-  event_created_at DateTime64(3),
-  request_id String,
-  query String,
-  api_type String,
-  is_playground Boolean,
-  security_context String,
-  status String,
-  duration UInt32,
-  start_time DateTime64(3),
-  query_type String,
-  query_count UInt32,
-  query_with_pre_aggregations UInt32,
-  cache_type String,
-  data_source String,
-  db_type String,
-  ext_db_type String,
-  external Boolean,
-  last_refresh_time DateTime64(3),
-  slow_query Boolean,
-  error String
-) ENGINE = MergeTree()
-ORDER BY (event_created_at, request_id)
-PARTITION BY toYYYYMM(event_created_at);
-`;
-
-async function startConsumer() {
-  const subscription = pubsub.subscription('audit_requests-sub');
-  
-  subscription.on('message', async (message) => {
-    const event = JSON.parse(message.data.toString());
-    
-    // Transform and insert
-    await clickhouse.insert('INSERT INTO cube_audit_logs', [event]).toPromise();
-    
-    message.ack();
-  });
-}
-
-startConsumer();
-```
 
 ## Analysis Patterns
 

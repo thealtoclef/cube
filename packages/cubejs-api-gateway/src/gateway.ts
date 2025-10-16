@@ -2033,10 +2033,6 @@ class ApiGateway {
       // Get metadata from the first result (primary query)
       const primaryResult = results[0].getRootResultObject()[0];
       const { dataSource, dbType, extDbType, external, lastRefreshTime, cacheType } = primaryResult;
-      const queryCount = results.length;
-      const queryWithPreAggregations = results.filter(
-        (r: any) => Object.keys(r.getRootResultObject()[0].usedPreAggregations || {}).length
-      ).length;
 
       this.log(
         {
@@ -2046,8 +2042,7 @@ class ApiGateway {
           apiType,
           queryType,
           isPlayground: Boolean(context.signedWithPlaygroundAuthSecret),
-          queryCount,
-          queryWithPreAggregations,
+          queryCount: results.length,
           dataSource,
           dbType,
           extDbType,
@@ -2075,7 +2070,7 @@ class ApiGateway {
         query_type: queryType,
         cache_type: cacheType,
         slow_query: slowQuery.toString(),
-        query_count: queryCount.toString(),
+        query_count: results.length.toString(),
         is_playground: Boolean(context.signedWithPlaygroundAuthSecret).toString(),
         status: 'success',
       });
@@ -2092,8 +2087,7 @@ class ApiGateway {
           status: 'success',
           duration: this.duration(requestStarted),
           start_time: requestStarted,
-          query_count: queryCount,
-          query_with_pre_aggregations: queryWithPreAggregations,
+          query_count: results.length,
           cache_type: cacheType,
           data_source: dataSource,
           db_type: dbType,
@@ -2317,10 +2311,6 @@ class ApiGateway {
               context.signedWithPlaygroundAuthSecret
             ),
             queryCount: results.length,
-            queryWithPreAggregations:
-              results.filter(
-                (r: any) => Object.keys(r.getRootResultObject()[0].usedPreAggregations || {}).length
-              ).length,
             dataSource,
             dbType,
             extDbType,

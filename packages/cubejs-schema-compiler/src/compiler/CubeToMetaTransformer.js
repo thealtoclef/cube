@@ -62,6 +62,7 @@ export class CubeToMetaTransformer {
       if (flatFolderSeparator !== '') {
         flatFolders.push({
           name: [...path, folder.name].join(flatFolderSeparator),
+          meta: folder.meta || {},
           members: flatMembers,
         });
       } else if (path.length > 0) {
@@ -69,12 +70,14 @@ export class CubeToMetaTransformer {
       } else { // We're at the root level
         flatFolders.push({
           name: folder.name,
+          meta: folder.meta || {},
           members: [...new Set(flatMembers)],
         });
       }
 
       return {
         name: folder.name,
+        meta: folder.meta || {},
         members: nestedMembers,
       };
     };

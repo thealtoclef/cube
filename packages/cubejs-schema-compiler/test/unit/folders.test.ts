@@ -176,7 +176,11 @@ describe('Cube Folders', () => {
     );
     expect(folder3.members.length).toBe(3);
     expect(folder3.members[1]).toEqual(
-      { name: 'inner folder 4', members: ['test_view4.renamed_orders_status'] }
+      {
+        name: 'inner folder 4',
+        meta: {},
+        members: ['test_view4.renamed_orders_status']
+      }
     );
     expect(folder3.members[2].name).toEqual('inner folder 5');
     expect(folder3.members[2].members).toEqual([

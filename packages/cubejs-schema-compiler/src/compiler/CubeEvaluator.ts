@@ -284,6 +284,8 @@ export class CubeEvaluator extends CubeSymbols {
       return member;
     };
 
+    const processedFolders: any[] = [];
+
     const processFolder = (folder: any): any => {
       let includedMembers: string[];
       let includes: any[] = [];
@@ -301,6 +303,46 @@ export class CubeEvaluator extends CubeSymbols {
         });
       }
 
+      // Process includesFrom (reference to another folder's processed members)
+      if (folder.includesFrom) {
+        // Find the referenced folder
+        const referencedFolder = processedFolders.find(f => f.name === folder.includesFrom);
+        if (!referencedFolder) {
+          errorReporter.error(
+            `Folder '${folder.name}' includesFrom unknown folder '${folder.includesFrom}'`
+          );
+          return { ...folder, type: 'folder', includes: includes.filter(Boolean) };
+        }
+
+        // Add members from the referenced folder (only member objects, not folder objects)
+        if (referencedFolder.includes && Array.isArray(referencedFolder.includes)) {
+          // Filter out any folder objects, keep only member objects
+          const extendedMembers = referencedFolder.includes.filter(item => item && item.name && item.type !== 'folder');
+
+          includes = [...extendedMembers, ...includes];
+        }
+      }
+
+      // Apply excludes filter
+      if (folder.excludes && Array.isArray(folder.excludes)) {
+        // Create a Set of excluded member names for efficient lookup
+        const excludedMemberNames = new Set(
+          folder.excludes
+            .map(exclude => checkMember(exclude, folder.name))
+            .filter(Boolean)
+            .map(member => member.name)
+        );
+
+        includes = includes.filter(include => {
+          // If it's a folder object, don't filter it
+          if (include.type === 'folder') {
+            return true;
+          }
+          // If it's a member object, filter out if excluded
+          return !excludedMemberNames.has(include.name);
+        });
+      }
+
       return {
         ...folder,
         type: 'folder',
@@ -308,7 +350,13 @@ export class CubeEvaluator extends CubeSymbols {
       };
     };
 
-    cube.folders = folders.map(processFolder);
+    // Process folders in order, allowing dependencies on previously processed folders
+    folders.forEach(folder => {
+      const processedFolder = processFolder(folder);
+      processedFolders.push(processedFolder);
+    });
+
+    cube.folders = processedFolders;
   }
 
   private prepareHierarchies(cube: any, errorReporter: ErrorReporter): void {

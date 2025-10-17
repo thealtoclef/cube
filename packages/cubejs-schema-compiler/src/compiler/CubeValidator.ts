@@ -873,6 +873,7 @@ const cubeSchema = inherit(baseSchema, {
 
 const folderSchema = Joi.object().keys({
   name: Joi.string().required(),
+  meta: Joi.object(),
   includes: Joi.alternatives([
     Joi.string().valid('*'),
     Joi.array().items(
@@ -881,8 +882,10 @@ const folderSchema = Joi.object().keys({
         Joi.link('#folderSchema'), // Can contain nested folders
       ]),
     ),
-  ]).required(),
-}).id('folderSchema');
+  ]),
+  includesFrom: Joi.string(),
+  excludes: Joi.array().items(Joi.string()),
+}).or('includes', 'includesFrom').id('folderSchema');
 
 const viewSchema = inherit(baseSchema, {
   isView: Joi.boolean().strict(),

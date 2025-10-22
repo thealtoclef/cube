@@ -3,6 +3,57 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.3.82](https://github.com/cube-js/cube/compare/v1.3.81...v1.3.82) (2025-10-21)
+
+### Bug Fixes
+
+- **cube:** Meta type for switch dimension ([#10060](https://github.com/cube-js/cube/issues/10060)) ([b45a1c4](https://github.com/cube-js/cube/commit/b45a1c4673986679d24e13d6bb41f7cf2d72f1df))
+- **schema-compiler:** Oracle use `TO_TIMESTAMP_TZ` for `ISO 8601 with Z` for date and timestamp ([#9970](https://github.com/cube-js/cube/issues/9970)) ([b7018c7](https://github.com/cube-js/cube/commit/b7018c79be4e596b013696ed35a042188935a33e))
+
+### Features
+
+- **cubesql:** Filter push down for date_part(?upper) AND date_part(?lower) ([#10070](https://github.com/cube-js/cube/issues/10070)) ([bcadbf2](https://github.com/cube-js/cube/commit/bcadbf233a7a875aecf6dcd9c4c17c7150f74dfe))
+- **cubesql:** Filter push down for date_part(?upper) AND date_part('week') ([#10071](https://github.com/cube-js/cube/issues/10071)) ([150a3c5](https://github.com/cube-js/cube/commit/150a3c520b93bbcd8be3bd098d24a3d95187fc14))
+- **cubesql:** PlanNormalize - reduce stack allocations (split by path) ([#10067](https://github.com/cube-js/cube/issues/10067)) ([bc8ff68](https://github.com/cube-js/cube/commit/bc8ff6857785022ecfdd1458f50b0677f3d6c500))
+- **cubesql:** Push down Tableau year-month-day IN number filter to CubeScan ([#10068](https://github.com/cube-js/cube/issues/10068)) ([bc16a5f](https://github.com/cube-js/cube/commit/bc16a5f9137fd88fb5243f356481bbe27a9a5f6b))
+
+## [1.3.81](https://github.com/cube-js/cube/compare/v1.3.80...v1.3.81) (2025-10-16)
+
+### Features
+
+- **tesseract:** Full outer join support ([#10057](https://github.com/cube-js/cube/issues/10057)) ([a315737](https://github.com/cube-js/cube/commit/a3157376815d71ed2e37805c9d7dff61ded3c665))
+
+## [1.3.80](https://github.com/cube-js/cube/compare/v1.3.79...v1.3.80) (2025-10-15)
+
+### Features
+
+- **schema-compiler:** Use views join maps and hints for query joins construction ([#10039](https://github.com/cube-js/cube/issues/10039)) ([f556b62](https://github.com/cube-js/cube/commit/f556b62691c473490c7f27b7ac759c2ffb89d2ff))
+
+## [1.3.79](https://github.com/cube-js/cube/compare/v1.3.78...v1.3.79) (2025-10-14)
+
+### Bug Fixes
+
+- **client-vue3:** Cleanup polluted package-lock file ([da98986](https://github.com/cube-js/cube/commit/da98986ded60d55cebc903061dc795a76e6332bc))
+- **cubesql:** Normalize timestamp/date expressions ([#10040](https://github.com/cube-js/cube/issues/10040)) ([7b1a5af](https://github.com/cube-js/cube/commit/7b1a5afe983e5191becb5eabd1381632acab133e))
+- **sqlite-driver:** Use pragma_table_info to fetch table columns ([#10031](https://github.com/cube-js/cube/issues/10031)) ([070e6e0](https://github.com/cube-js/cube/commit/070e6e0d016537af293e3dc7ec02791072ccba42))
+
+### Features
+
+- **cubesql:** PlanNormalize - reduce stack allocations ([#10055](https://github.com/cube-js/cube/issues/10055)) ([619343d](https://github.com/cube-js/cube/commit/619343d0e2962de99786ca47e298ab00afb3d776))
+- **docs:** Integrate Purple Banner component into documentation site ([#10053](https://github.com/cube-js/cube/issues/10053)) ([32df746](https://github.com/cube-js/cube/commit/32df746362b1d2d199e4f8616db3fd4080b4712d))
+- **firebolt-driver:** Pass CUBEJS_DB_QUERY_TIMEOUT to Firebolt driver ([#10043](https://github.com/cube-js/cube/issues/10043)) ([b46565b](https://github.com/cube-js/cube/commit/b46565b0d41ec8c3cfd7caf0a51dc5ee89d1df90))
+
+## [1.3.78](https://github.com/cube-js/cube/compare/v1.3.77...v1.3.78) (2025-10-03)
+
+### Bug Fixes
+
+- **base-driver:** Throw an error when the list of csv files from the bucket is empty ([#9996](https://github.com/cube-js/cube/issues/9996)) ([a8e791c](https://github.com/cube-js/cube/commit/a8e791c1e9c271b63fcf68ba204e875eb3d21fd7))
+- **snowflake-driver:** Add support for IAM roles with IRSA for S3 export buckets ([#10024](https://github.com/cube-js/cube/issues/10024)) ([9ceb2f9](https://github.com/cube-js/cube/commit/9ceb2f94d5deab5fba39faa00e234011c3898710))
+
+### Features
+
+- **schema-compiler:** Pretty print compile errors grouped by files ([#10025](https://github.com/cube-js/cube/issues/10025)) ([0c5c21c](https://github.com/cube-js/cube/commit/0c5c21c4def87cdf9a4b673fde40b034d05d02be))
+
 ## [1.3.77](https://github.com/cube-js/cube/compare/v1.3.76...v1.3.77) (2025-10-01)
 
 ### Bug Fixes

@@ -3,6 +3,37 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.3.82](https://github.com/cube-js/cube/compare/v1.3.81...v1.3.82) (2025-10-21)
+
+### Bug Fixes
+
+- **cube:** Meta type for switch dimension ([#10060](https://github.com/cube-js/cube/issues/10060)) ([b45a1c4](https://github.com/cube-js/cube/commit/b45a1c4673986679d24e13d6bb41f7cf2d72f1df))
+- **schema-compiler:** Oracle use `TO_TIMESTAMP_TZ` for `ISO 8601 with Z` for date and timestamp ([#9970](https://github.com/cube-js/cube/issues/9970)) ([b7018c7](https://github.com/cube-js/cube/commit/b7018c79be4e596b013696ed35a042188935a33e))
+
+## [1.3.81](https://github.com/cube-js/cube/compare/v1.3.80...v1.3.81) (2025-10-16)
+
+### Features
+
+- **tesseract:** Full outer join support ([#10057](https://github.com/cube-js/cube/issues/10057)) ([a315737](https://github.com/cube-js/cube/commit/a3157376815d71ed2e37805c9d7dff61ded3c665))
+
+## [1.3.80](https://github.com/cube-js/cube/compare/v1.3.79...v1.3.80) (2025-10-15)
+
+### Features
+
+- **schema-compiler:** Use views join maps and hints for query joins construction ([#10039](https://github.com/cube-js/cube/issues/10039)) ([f556b62](https://github.com/cube-js/cube/commit/f556b62691c473490c7f27b7ac759c2ffb89d2ff))
+
+## [1.3.79](https://github.com/cube-js/cube/compare/v1.3.78...v1.3.79) (2025-10-14)
+
+### Bug Fixes
+
+- **cubesql:** Normalize timestamp/date expressions ([#10040](https://github.com/cube-js/cube/issues/10040)) ([7b1a5af](https://github.com/cube-js/cube/commit/7b1a5afe983e5191becb5eabd1381632acab133e))
+
+## [1.3.78](https://github.com/cube-js/cube/compare/v1.3.77...v1.3.78) (2025-10-03)
+
+### Features
+
+- **schema-compiler:** Pretty print compile errors grouped by files ([#10025](https://github.com/cube-js/cube/issues/10025)) ([0c5c21c](https://github.com/cube-js/cube/commit/0c5c21c4def87cdf9a4b673fde40b034d05d02be))
+
 ## [1.3.77](https://github.com/cube-js/cube/compare/v1.3.76...v1.3.77) (2025-10-01)
 
 ### Bug Fixes

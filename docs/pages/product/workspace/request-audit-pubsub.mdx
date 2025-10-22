@@ -103,7 +103,7 @@ open http://localhost:7200
 
 1. **Google Cloud Project** with Pub/Sub API enabled
 2. **Service Account** with `roles/pubsub.publisher` permission
-3. **Pub/Sub Topic** created for audit logs
+3. **Pub/Sub Topic** created for request audit
 
 ### Step 1: Create Pub/Sub Topic
 
@@ -346,6 +346,93 @@ When a query fails:
 | **Error Only** | | | |
 | `error` | string | Error | Error message |
 
+## Consumer Examples
+
+### BigQuery Table Schema
+
+Create a BigQuery table to store request audit data:
+
+```sql
+CREATE TABLE `project.dataset.audit_requests` (
+  event_type STRING,
+  event_id STRING,
+  event_created_at TIMESTAMP,
+  request_id STRING,
+  query JSON,
+  api_type STRING,
+  is_playground BOOLEAN,
+  security_context JSON,
+  status STRING,
+
+  -- Timing fields
+  duration INT64,
+  start_time TIMESTAMP,
+
+  -- Success fields
+  query_type STRING,
+  query_count INT64,
+  cache_type STRING,
+  data_source STRING,
+  db_type STRING,
+  ext_db_type STRING,
+  external BOOLEAN,
+  last_refresh_time TIMESTAMP,
+  slow_query BOOLEAN,
+
+  -- Error field
+  error STRING
+)
+PARTITION BY DATE(event_created_at)
+CLUSTER BY request_id, status, api_type;
+```
+
+### Apache Doris Table Schema
+
+Create an Apache Doris table to store request audit data:
+
+```sql
+CREATE TABLE IF NOT EXISTS audit_requests (
+  event_type VARCHAR(32),
+  event_id VARCHAR(64),
+  event_created_at DATETIME,
+  request_id VARCHAR(128),
+  query VARIANT,
+  api_type VARCHAR(32),
+  is_playground BOOLEAN,
+  security_context VARIANT,
+  status VARCHAR(32),
+
+  -- Timing fields
+  duration INT,
+  start_time DATETIME,
+
+  -- Success fields
+  query_type VARCHAR(32),
+  query_count INT,
+  cache_type VARCHAR(32),
+  data_source VARCHAR(128),
+  db_type VARCHAR(32),
+  ext_db_type VARCHAR(32),
+  external BOOLEAN,
+  last_refresh_time DATETIME,
+  slow_query BOOLEAN,
+
+  -- Error field
+  error STRING
+)
+ENGINE = OLAP
+UNIQUE KEY(event_id)
+AUTO PARTITION BY RANGE (date_trunc(event_created_at, 'day'))
+DISTRIBUTED BY HASH(request_id) BUCKETS AUTO
+PROPERTIES (
+  "dynamic_partition.enable" = "true",
+  "dynamic_partition.prefix" = "p",
+  "dynamic_partition.start" = "-30"
+  "dynamic_partition.end" = "0",
+  "dynamic_partition.time_unit" = "day",
+);
+```
+
 ## Analysis Patterns
 
 ### Query Performance by Cache Type
@@ -359,7 +446,7 @@ SELECT
   APPROX_QUANTILES(duration, 100)[OFFSET(50)] as p50_ms,
   APPROX_QUANTILES(duration, 100)[OFFSET(95)] as p95_ms,
   APPROX_QUANTILES(duration, 100)[OFFSET(99)] as p99_ms
-FROM `project.dataset.cube_audit_logs`
+FROM `project.dataset.audit_requests`
 WHERE event_type = 'load'
   AND status = 'success'
   AND event_created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)
@@ -381,7 +468,7 @@ SELECT
     ELSE LAG(event_created_at) OVER (PARTITION BY request_id ORDER BY event_created_at)
   END as previous_event_time,
   JSON_VALUE(security_context, '$.tenant') as tenant
-FROM `project.dataset.cube_audit_logs`
+FROM `project.dataset.audit_requests`
 WHERE event_type = 'load'
   AND event_created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 HOUR)
 ORDER BY request_id, event_created_at;
@@ -401,7 +488,7 @@ SELECT
     ORDER BY event_created_at DESC
     LIMIT 5
   ) as sample_errors
-FROM `project.dataset.cube_audit_logs`
+FROM `project.dataset.audit_requests`
 WHERE event_type = 'load_response'
   AND event_created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)
 GROUP BY hour
@@ -419,7 +506,7 @@ SELECT
   COUNT(DISTINCT DATE(event_created_at)) as active_days,
   AVG(duration) as avg_duration_ms,
   COUNTIF(slow_query) as slow_queries
-FROM `project.dataset.cube_audit_logs`
+FROM `project.dataset.audit_requests`
 WHERE event_type = 'load_response'
   AND status = 'success'
   AND event_created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
@@ -443,7 +530,7 @@ SELECT
                          'pre_aggregations_cube_store',
                          'pre_aggregations_data_source'))
     / COUNT(*) * 100 as cache_hit_rate_pct
-FROM `project.dataset.cube_audit_logs`
+FROM `project.dataset.audit_requests`
 WHERE event_type = 'load_response'
   AND status = 'success'
   AND event_created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
@@ -497,7 +584,7 @@ The `security_context` field may contain:
 1. **Sanitize** - Remove PII before publishing (requires code modification)
 2. **Access Control** - Restrict Pub/Sub subscription access via IAM
 3. **Data Governance** - Apply appropriate retention policies
-4. **Compliance** - Ensure audit logs meet regulatory requirements (GDPR, HIPAA, etc.)
+4. **Compliance** - Ensure request audit data meets regulatory requirements (GDPR, HIPAA, etc.)
 
 ### Monitoring
 
@@ -524,7 +611,7 @@ Request Audit PubSub Publish Error                 // Should be rare
 # Create alert for high error rate
 gcloud alpha monitoring policies create \
   --notification-channels=CHANNEL_ID \
-  --display-name="Cube Audit Log Errors" \
+  --display-name="Cube Request Audit Errors" \
   --condition-display-name="High publish error rate" \
   --condition-threshold-value=10 \
   --condition-threshold-duration=300s

@@ -193,6 +193,7 @@ const querySchema = Joi.object().keys({
   cache: Joi.valid('stale-if-slow', 'stale-while-revalidate', 'must-revalidate', 'no-cache'),
   ungrouped: Joi.boolean(),
   responseFormat: Joi.valid('default', 'compact'),
+  disablePreAggregations: Joi.boolean(),
   subqueryJoins: Joi.array().items(subqueryJoin),
   joinHints: Joi.array().items(joinHint),
 });

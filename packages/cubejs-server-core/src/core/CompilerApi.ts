@@ -25,7 +25,7 @@ import { LRUCache } from 'lru-cache';
 import { NativeInstance } from '@cubejs-backend/native';
 import { disposedProxy } from '@cubejs-backend/shared';
 import type { SchemaFileRepository } from '@cubejs-backend/shared';
-import { NormalizedQuery, MemberExpression } from '@cubejs-backend/api-gateway';
+import { CubejsHandlerError, NormalizedQuery, MemberExpression } from '@cubejs-backend/api-gateway';
 import { DriverCapabilities } from '@cubejs-backend/base-driver';
 import { DbTypeInternalFn, DialectClassFn, LoggerFn } from './types';
 
@@ -691,15 +691,7 @@ export class CompilerApi {
         }
 
         if (!hasAccessPermission) {
-          // This is a hack that will make sure that the query returns no result
-          query.segments = query.segments || [];
-          query.segments.push({
-            expression: () => '1 = 0',
-            cubeName: cube.name,
-            name: 'rlsAccessDenied',
-          } as unknown as MemberExpression);
-          // If we hit this condition there's no need to evaluate the rest of the policy
-          return { query, denied: true };
+          throw new CubejsHandlerError(403, 'Forbidden', `Row-level security: No access policies match current security context for cube '${cube.name}'`);
         }
       }
     }

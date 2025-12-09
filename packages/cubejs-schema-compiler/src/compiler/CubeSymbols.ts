@@ -150,12 +150,16 @@ export type ViewIncludedMember = {
 export type FolderMember = {
   type?: 'folder';
   name: string;
+  meta?: any;
   includes?: FolderMember[];
 };
 
 export type Folder = {
   name: string;
-  includes: FolderMember[];
+  meta?: any;
+  includes?: FolderMember[];
+  includesFrom?: string;
+  excludes?: string[];
 };
 
 export interface CubeDefinition {

@@ -55,11 +55,13 @@ interface ExtendedCubeDefinition extends CubeDefinitionExtended {
 
 export type FlatFolder = {
   name: string;
+  meta?: any;
   members: string[];
 };
 
 export type NestedFolder = {
   name: string;
+  meta?: any;
   members: Array<string | NestedFolder>;
 };
 
@@ -192,7 +194,7 @@ export class CubeToMetaTransformer implements CompilerInterface {
 
     const processFolder = (folder: Folder, path: string[] = [], mergedMembers: string[] = []): NestedFolder => {
       const flatMembers: string[] = [];
-      const nestedMembers: Array<string | NestedFolder> = folder.includes.map((member: FolderMember) => {
+      const nestedMembers: Array<string | NestedFolder> = (folder.includes || []).map((member: FolderMember) => {
         if (member.type === 'folder' && member.includes) {
           return processFolder(member as Folder, [...path, folder.name], flatMembers);
         }
@@ -205,6 +207,7 @@ export class CubeToMetaTransformer implements CompilerInterface {
       if (flatFolderSeparator !== '') {
         flatFolders.push({
           name: [...path, folder.name].join(flatFolderSeparator),
+          meta: folder.meta || {},
           members: flatMembers,
         });
       } else if (path.length > 0) {
@@ -212,12 +215,14 @@ export class CubeToMetaTransformer implements CompilerInterface {
       } else { // We're at the root level
         flatFolders.push({
           name: folder.name,
+          meta: folder.meta || {},
           members: [...new Set(flatMembers)],
         });
       }
 
       return {
         name: folder.name,
+        meta: folder.meta || {},
         members: nestedMembers,
       };
     };

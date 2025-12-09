@@ -429,6 +429,7 @@ class ApiGateway {
           await this.meta({
             context: req.context,
             res: this.resToResultFn(res),
+            includeCompilerId: true,
           });
         }
       })

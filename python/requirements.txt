@@ -1,0 +1,4 @@
+google-cloud-storage
+pyjwt[crypto]
+cachetools
+xxhash

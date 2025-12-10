@@ -36,6 +36,7 @@ export interface QueryOrchestratorOptions {
   rollupOnlyMode?: boolean;
   continueWaitTimeout?: number;
   skipExternalCacheAndQueue?: boolean;
+  fallbackToDataSource?: boolean;
 }
 
 function detectQueueAndCacheDriver(options: QueryOrchestratorOptions): CacheAndQueryDriverType {
@@ -68,6 +69,12 @@ export class QueryOrchestrator {
 
   protected readonly cacheAndQueueDriver: string;
 
+  protected readonly fallbackToDataSource: boolean;
+
+  public getFallbackToDataSource(): boolean {
+    return this.fallbackToDataSource;
+  }
+
   public constructor(
     protected readonly redisPrefix: string,
     protected readonly driverFactory: DriverFactoryByDataSource,
@@ -75,6 +82,7 @@ export class QueryOrchestrator {
     options: QueryOrchestratorOptions = {}
   ) {
     this.rollupOnlyMode = options.rollupOnlyMode;
+    this.fallbackToDataSource = options.fallbackToDataSource;
     const cacheAndQueueDriver = detectQueueAndCacheDriver(options);
 
     if (!['memory', 'cubestore'].includes(cacheAndQueueDriver)) {

@@ -1871,6 +1871,7 @@ class ApiGateway {
       external: response.external,
       slowQuery: Boolean(response.slowQuery),
       total: normalizedQuery.total ? response.total : null,
+      requestId: context.requestId,
     };
 
     resultWrapper.setTransformData(transformDataParams);

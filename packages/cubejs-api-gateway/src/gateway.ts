@@ -182,6 +182,8 @@ class ApiGateway {
 
   protected readonly sqlServer: SQLServer;
 
+  protected requestAuditPublisher?: any;
+
   public constructor(
     protected readonly apiSecret: string,
     /**
@@ -221,6 +223,7 @@ class ApiGateway {
     this.sqlServer = this.createSQLServerInstance({
       gatewayPort: options.gatewayPort,
     });
+    this.requestAuditPublisher = options.requestAuditPublisher;
   }
 
   public getSQLServer(): SQLServer {
@@ -2009,6 +2012,18 @@ class ApiGateway {
         query
       }, context);
 
+      // Publish request audit event for request acknowledged
+      if (this.requestAuditPublisher) {
+        this.requestAuditPublisher.publishEvent({
+          request_id: context.requestId,
+          api_type: apiType,
+          query,
+          is_playground: Boolean(context.signedWithPlaygroundAuthSecret),
+          security_context: context.securityContext,
+          status: 'acknowledged',
+        }, 'load');
+      }
+
       const [queryType, normalizedQueries] =
         await this.getNormalizedQueries(query, context, false, false, cacheMode);
 
@@ -2105,6 +2120,29 @@ class ApiGateway {
         is_playground: Boolean(context.signedWithPlaygroundAuthSecret).toString(),
         status: 'success',
       });
+
+      // Publish request audit event for successful response
+      if (this.requestAuditPublisher) {
+        this.requestAuditPublisher.publishEvent({
+          request_id: context.requestId,
+          api_type: apiType,
+          query_type: queryType,
+          query,
+          is_playground: Boolean(context.signedWithPlaygroundAuthSecret),
+          security_context: context.securityContext,
+          status: 'success',
+          duration: this.duration(requestStarted),
+          start_time: requestStarted,
+          query_count: results.length,
+          cache_type: cacheType,
+          data_source: dataSource,
+          db_type: dbType,
+          ext_db_type: extDbType,
+          external,
+          last_refresh_time: lastRefreshTime,
+          slow_query: slowQuery,
+        }, 'load');
+      }
     } catch (e: any) {
       // Record metrics for error response
       histogramMetric({
@@ -2113,6 +2151,28 @@ class ApiGateway {
         is_playground: Boolean(context.signedWithPlaygroundAuthSecret).toString(),
         status: 'error',
       });
+
+      // Publish request audit event for error response
+      const status = e.error === 'Continue wait' ? 'continue_wait' : 'error';
+      if (this.requestAuditPublisher) {
+        const auditData: any = {
+          request_id: context.requestId,
+          query,
+          api_type: apiType,
+          is_playground: Boolean(context.signedWithPlaygroundAuthSecret),
+          security_context: context.securityContext,
+          status,
+          duration: this.duration(requestStarted),
+          start_time: requestStarted,
+        };
+
+        // Only include error field for actual errors, not continue_wait
+        if (status === 'error') {
+          auditData.error = e.message || e.toString() || e.error?.message || e.error?.toString();
+        }
+
+        this.requestAuditPublisher.publishEvent(auditData, 'load');
+      }
 
       this.handleError({
         e, context, query, res, requestStarted

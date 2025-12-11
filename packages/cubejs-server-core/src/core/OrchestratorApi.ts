@@ -8,6 +8,7 @@ import {
   QueryBody,
   QueryOrchestrator,
   QueryOrchestratorOptions,
+  determineCacheType,
 } from '@cubejs-backend/query-orchestrator';
 
 import { DatabaseType, RequestContext } from './types';
@@ -148,8 +149,15 @@ export class OrchestratorApi {
               'consider using low latency pre-aggregations.'
           });
 
+          // Determine cache type for slow query served from cache
+          const cacheType = determineCacheType({
+            fromCache: true,
+            fromInMemoryCache: false,
+          });
+
           return {
             ...fromCache,
+            cacheType,
             slowQuery: true
           };
         }

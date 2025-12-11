@@ -26,6 +26,38 @@ import { LoadPreAggregationResult, PreAggregationDescription } from './PreAggreg
 import { getCacheHash } from './utils';
 import { CacheAndQueryDriverType, MetadataOperationType } from './QueryOrchestrator';
 
+/**
+ * Cache metadata that is attached to query results as a hidden property.
+ * This allows non-invasive tracking of cache hits without changing function signatures.
+ *
+ * Usage example:
+ * ```typescript
+ * const result = await queryCache.cacheQueryResult(...);
+ *
+ * // Check if result came from cache
+ * if (result?.__cacheMetadata) {
+ *   const { fromCache, fromInMemoryCache } = result.__cacheMetadata;
+ *   console.log(`Cache hit: ${fromCache}, In-memory: ${fromInMemoryCache}`);
+ * }
+ *
+ * // Use result normally
+ * return result;
+ * ```
+ */
+export interface CacheMetadata {
+  /** Whether the result came from any cache layer (in-memory or persistent) */
+  fromCache: boolean;
+  /** Whether the result came specifically from the in-memory LRU cache */
+  fromInMemoryCache: boolean;
+}
+
+// Extend the global type to allow __cacheMetadata on any object
+declare global {
+  interface Object {
+    __cacheMetadata?: CacheMetadata;
+  }
+}
+
 export type CacheQueryResultOptions = {
   renewalThreshold?: number,
   renewalKey?: any,
@@ -375,9 +407,13 @@ export class QueryCache {
       );
     }
 
+    const cachedResult = await mainPromise;
+    const metadata = cachedResult?.__cacheMetadata || { fromCache: false, fromInMemoryCache: false };
     return {
-      data: await mainPromise,
-      lastRefreshTime: await this.lastRefreshTime(cacheKey)
+      data: cachedResult,
+      lastRefreshTime: await this.lastRefreshTime(cacheKey),
+      fromCache: metadata.fromCache,
+      fromInMemoryCache: metadata.fromInMemoryCache,
     };
   }
 
@@ -796,36 +832,40 @@ export class QueryCache {
         this.logger('Error fetching cache key queries', { error: e.stack || e, requestId: options.requestId });
         return [];
       })
-      .then(async cacheKeyQueryResults => (
-        {
-          data: await this.cacheQueryResult(
-            query,
-            values,
-            cacheKey,
-            expireSecs,
-            {
-              renewalThreshold: renewalThreshold || 6 * 60 * 60,
-              renewalKey: cacheKeyQueryResults && [
-                cacheKeyQueries,
-                cacheKeyQueryResults,
-                this.queryRedisKey([query, values]),
-              ],
-              waitForRenew: true,
-              forceNoCache: options.forceNoCache,
-              external: options.external,
-              requestId: options.requestId,
-              dataSource: options.dataSource,
-              useCsvQuery: options.useCsvQuery,
-              lambdaTypes: options.lambdaTypes,
-              persistent: options.persistent,
-              primaryQuery: true,
-              renewCycle: options.renewCycle,
-            }
-          ),
+      .then(async cacheKeyQueryResults => {
+        const data = await this.cacheQueryResult(
+          query,
+          values,
+          cacheKey,
+          expireSecs,
+          {
+            renewalThreshold: renewalThreshold || 6 * 60 * 60,
+            renewalKey: cacheKeyQueryResults && [
+              cacheKeyQueries,
+              cacheKeyQueryResults,
+              this.queryRedisKey([query, values]),
+            ],
+            waitForRenew: true,
+            forceNoCache: options.forceNoCache,
+            external: options.external,
+            requestId: options.requestId,
+            dataSource: options.dataSource,
+            useCsvQuery: options.useCsvQuery,
+            lambdaTypes: options.lambdaTypes,
+            persistent: options.persistent,
+            primaryQuery: true,
+            renewCycle: options.renewCycle,
+          }
+        );
+        const metadata = data?.__cacheMetadata || { fromCache: false, fromInMemoryCache: false };
+        return {
+          data,
           refreshKeyValues: cacheKeyQueryResults,
-          lastRefreshTime: await this.lastRefreshTime(cacheKey)
-        }
-      ));
+          lastRefreshTime: await this.lastRefreshTime(cacheKey),
+          fromCache: metadata.fromCache,
+          fromInMemoryCache: metadata.fromInMemoryCache,
+        };
+      });
   }
 
   public async loadRefreshKeysFromQuery(query: Query) {
@@ -917,6 +957,13 @@ export class QueryCache {
               bytes,
               cacheKey,
             });
+            // Attach cache metadata directly to result object (non-invasive)
+            if (res && typeof res === 'object') {
+              res.__cacheMetadata = {
+                fromCache: false,
+                fromInMemoryCache: false,
+              };
+            }
             return res;
           });
       }).catch(e => {
@@ -947,6 +994,7 @@ export class QueryCache {
     }
 
     let res;
+    let fromInMemoryCache = false;
 
     const inMemoryCacheDisablePeriod = 5 * 60 * 1000;
 
@@ -980,6 +1028,7 @@ export class QueryCache {
             renewCycle
           });
           res = inMemoryValue;
+          fromInMemoryCache = true;
         }
       }
     }
@@ -1027,7 +1076,15 @@ export class QueryCache {
       if (options.useInMemory && renewedAgo + inMemoryCacheDisablePeriod <= renewalThreshold * 1000) {
         this.memoryCache.set(redisKey, parsedResult);
       }
-      return parsedResult.result;
+      // Attach cache metadata directly to result object (non-invasive)
+      const resultData = parsedResult.result;
+      if (resultData && typeof resultData === 'object') {
+        resultData.__cacheMetadata = {
+          fromCache: true,
+          fromInMemoryCache,
+        };
+      }
+      return resultData;
     } else {
       this.logger('Missing cache for', { cacheKey, requestId: options.requestId, spanId, primaryQuery, renewCycle });
       return fetchNew();

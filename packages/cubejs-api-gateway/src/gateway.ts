@@ -106,6 +106,7 @@ import {
   transformJoins,
   transformPreAggregations,
 } from './helpers/transform-meta-extended';
+import { loadResponseTime, metaResponseTime } from './metrics';
 
 type HandleErrorOptions = {
     e: any,
@@ -153,6 +154,8 @@ class ApiGateway {
 
   protected readonly dataSourceStorage: any;
 
+  protected readonly serverCore?: any;
+
   public readonly checkAuthFn: PreparedCheckAuthFn;
 
   public readonly checkAuthSystemFn: PreparedCheckAuthFn;
@@ -199,6 +202,7 @@ class ApiGateway {
     this.standalone = options.standalone;
     this.basePath = options.basePath;
     this.playgroundAuthSecret = options.playgroundAuthSecret;
+    this.serverCore = options.serverCore;
 
     this.queryRewrite = options.queryRewrite || (async (query) => query);
     this.subscriptionStore = options.subscriptionStore || new LocalSubscriptionStore();
@@ -624,6 +628,7 @@ class ApiGateway {
     onlyCompilerId?: boolean
   }) {
     const requestStarted = new Date();
+    const histogramMetric = metaResponseTime.startTimer();
 
     try {
       await this.assertApiScope('meta', context.securityContext);
@@ -638,6 +643,12 @@ class ApiGateway {
           compilerId: metaConfig.compilerId
         };
         res(response);
+        histogramMetric({
+          tenant: context.securityContext?.tenant,
+          extended: 'false',
+          only_compiler_id: 'true',
+          status: 'success',
+        });
         return;
       }
       const cubesConfig = includeCompilerId ? metaConfig.cubes : metaConfig;
@@ -647,7 +658,19 @@ class ApiGateway {
         response.compilerId = metaConfig.compilerId;
       }
       res(response);
+      histogramMetric({
+        tenant: context.securityContext?.tenant,
+        extended: 'false',
+        only_compiler_id: 'false',
+        status: 'success',
+      });
     } catch (e: any) {
+      histogramMetric({
+        tenant: context.securityContext?.tenant,
+        extended: 'false',
+        only_compiler_id: Boolean(onlyCompilerId).toString(),
+        status: 'error',
+      });
       this.handleError({
         e,
         context,
@@ -660,6 +683,7 @@ class ApiGateway {
 
   public async metaExtended({ context, res }: { context: ExtendedRequestContext, res: ResponseResultFn }) {
     const requestStarted = new Date();
+    const histogramMetric = metaResponseTime.startTimer();
 
     try {
       await this.assertApiScope('meta', context.securityContext);
@@ -687,7 +711,19 @@ class ApiGateway {
         }));
 
       await res({ cubes });
+      histogramMetric({
+        tenant: context.securityContext?.tenant,
+        extended: 'true',
+        only_compiler_id: 'false',
+        status: 'success',
+      });
     } catch (e: any) {
+      histogramMetric({
+        tenant: context.securityContext?.tenant,
+        extended: 'true',
+        only_compiler_id: 'false',
+        status: 'error',
+      });
       this.handleError({
         e,
         context,
@@ -1783,13 +1819,25 @@ class ApiGateway {
         context
       });
     }
-    const [response, total] = await Promise.all(
-      queries.map(async (query) => {
-        const res = await (await this.getAdapterApi(context))
-          .executeQuery(query);
-        return res;
-      })
-    );
+
+    // Wrap query execution with AsyncLocalStorage context for metrics tracking
+    const executeQueries = async () => {
+      const [response, total] = await Promise.all(
+        queries.map(async (query) => {
+          const res = await (await this.getAdapterApi(context))
+            .executeQuery(query);
+          return res;
+        })
+      );
+      return [response, total];
+    };
+
+    const [response, total] = this.serverCore
+      ? await this.serverCore.executeWithContext({
+        securityContext: context.securityContext,
+        requestId: context.requestId
+      }, executeQueries)
+      : await executeQueries();
     response.total = normalizedQuery.total
       ? Number(total.data[0][QueryAlias.TOTAL_COUNT])
       : undefined;
@@ -1942,6 +1990,7 @@ class ApiGateway {
       cacheMode,
       ...props
     } = request;
+    const histogramMetric = loadResponseTime.startTimer();
     const requestStarted = new Date();
 
     try {
@@ -2012,25 +2061,26 @@ class ApiGateway {
         })
       );
 
+      // Get metadata from the first result (primary query)
+      const primaryResult = results[0].getRootResultObject()[0];
+      const { dataSource, dbType, extDbType, external, lastRefreshTime, cacheType } = primaryResult;
+
       this.log(
         {
           type: 'Load Request Success',
           query,
           duration: this.duration(requestStarted),
           apiType,
-          isPlayground: Boolean(
-            context.signedWithPlaygroundAuthSecret
-          ),
-          queries: results.length,
-          queriesWithPreAggregations:
-            results.filter(
-              (r: any) => Object.keys(r.getRootResultObject()[0].usedPreAggregations || {}).length
-            ).length,
-          // Have to omit because data could be processed natively
-          // so it is not known at this point
-          // queriesWithData:
-          //   results.filter((r: any) => r.data?.length).length,
-          dbType: results.map(r => r.getRootResultObject()[0].dbType),
+          queryType,
+          isPlayground: Boolean(context.signedWithPlaygroundAuthSecret),
+          queryCount: results.length,
+          dataSource,
+          dbType,
+          extDbType,
+          external,
+          lastRefreshTime,
+          cacheType,
+          slowQuery,
         },
         context,
       );
@@ -2043,7 +2093,27 @@ class ApiGateway {
         // We prepare the full final JSON result on the native side
         await res(results[0]);
       }
+      
+      // Record metrics for successful response
+      histogramMetric({
+        tenant: context.securityContext.tenant,
+        api_type: apiType,
+        query_type: queryType,
+        cache_type: cacheType,
+        slow_query: slowQuery.toString(),
+        query_count: results.length.toString(),
+        is_playground: Boolean(context.signedWithPlaygroundAuthSecret).toString(),
+        status: 'success',
+      });
     } catch (e: any) {
+      // Record metrics for error response
+      histogramMetric({
+        tenant: context.securityContext?.tenant,
+        api_type: apiType,
+        is_playground: Boolean(context.signedWithPlaygroundAuthSecret).toString(),
+        status: 'error',
+      });
+
       this.handleError({
         e, context, query, res, requestStarted
       });
@@ -2055,9 +2125,14 @@ class ApiGateway {
     const {
       context,
       res,
+      apiType,
       cacheMode,
     } = request;
+    const histogramMetric = loadResponseTime.startTimer();
     const requestStarted = new Date();
+
+    const rawSql = Boolean(request.sqlQuery);
+    let cacheType = 'no_cache';
 
     try {
       await this.assertApiScope('data', context.securityContext);
@@ -2068,6 +2143,12 @@ class ApiGateway {
       if (!Array.isArray(query) && query.responseFormat) {
         resType = query.responseFormat;
       }
+
+      this.log({
+        type: 'Load Request',
+        apiType,
+        query
+      }, context);
 
       const [queryType, normalizedQueries] =
         await this.getNormalizedQueries(query, context, request.streaming, request.memberExpressions, cacheMode);
@@ -2124,7 +2205,16 @@ class ApiGateway {
           results = [await streamResponse(finalQuery)];
         } else {
           const adapterApi = await this.getAdapterApi(context);
-          const response = await adapterApi.executeQuery(finalQuery);
+
+          // Wrap query execution with AsyncLocalStorage context for metrics tracking
+          const executeQuery = async () => adapterApi.executeQuery(finalQuery);
+
+          const response = this.serverCore
+            ? await this.serverCore.executeWithContext({
+              securityContext: context.securityContext,
+              requestId: context.requestId
+            }, executeQuery)
+            : await executeQuery();
 
           const annotation = prepareAnnotation(
             metaConfigResult, normalizedQueries[0]
@@ -2136,6 +2226,24 @@ class ApiGateway {
             annotation
           }];
         }
+
+        this.log(
+          {
+            type: 'Load Request Success',
+            query,
+            duration: this.duration(requestStarted),
+            apiType,
+            queryType,
+            cacheType,
+            isPlayground: Boolean(
+              context.signedWithPlaygroundAuthSecret
+            ),
+            queryCount: results.length,
+            rawSql,
+            slowQuery,
+          },
+          context,
+        );
 
         await res(request.streaming ? results[0] : { results });
       } else {
@@ -2170,6 +2278,34 @@ class ApiGateway {
           })
         );
 
+        // Get metadata from the first result (primary query)
+        const primaryResult = results[0].getRootResultObject()[0];
+        const { dataSource, dbType, extDbType, external, lastRefreshTime } = primaryResult;
+        cacheType = primaryResult.cacheType;
+
+        this.log(
+          {
+            type: 'Load Request Success',
+            query,
+            duration: this.duration(requestStarted),
+            apiType,
+            queryType,
+            isPlayground: Boolean(
+              context.signedWithPlaygroundAuthSecret
+            ),
+            queryCount: results.length,
+            dataSource,
+            dbType,
+            extDbType,
+            external,
+            lastRefreshTime,
+            cacheType,
+            rawSql,
+            slowQuery,
+          },
+          context,
+        );
+
         if (request.streaming) {
           await res(results[0]);
         } else {
@@ -2178,7 +2314,26 @@ class ApiGateway {
           await res(resultArray);
         }
       }
+
+      histogramMetric({
+        tenant: context.securityContext.tenant,
+        api_type: apiType,
+        query_type: queryType,
+        cache_type: cacheType,
+        raw_sql: rawSql.toString(),
+        slow_query: slowQuery.toString(),
+        query_count: results.length.toString(),
+        is_playground: Boolean(context.signedWithPlaygroundAuthSecret).toString(),
+        status: 'success',
+      });
     } catch (e: any) {
+      histogramMetric({
+        tenant: context.securityContext?.tenant,
+        api_type: apiType,
+        raw_sql: rawSql.toString(),
+        is_playground: Boolean(context?.signedWithPlaygroundAuthSecret).toString(),
+        status: 'error',
+      });
       this.handleError({
         e, context, query, res, requestStarted
       });

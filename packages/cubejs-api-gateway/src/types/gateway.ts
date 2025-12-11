@@ -76,6 +76,7 @@ interface ApiGatewayOptions {
   checkAuth?: CheckAuthFn;
   contextToApiScopes?: ContextToApiScopesFn;
   event?: (name: string, props?: object) => void;
+  serverCore?: any;
 }
 
 export {

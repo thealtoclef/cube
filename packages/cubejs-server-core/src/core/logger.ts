@@ -137,6 +137,8 @@ export const prodLogger = (level?: LogLevel) => (msg: string, params: ProdLogPar
     case 'info':
       if ([
         'REST API Request',
+        'Load Request',
+        'Load Request Success',
       ].includes(msg)) {
         logMessage();
       }

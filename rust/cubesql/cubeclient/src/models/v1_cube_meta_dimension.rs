@@ -31,7 +31,7 @@ pub struct V1CubeMetaDimension {
     #[serde(rename = "meta", skip_serializing_if = "Option::is_none")]
     pub meta: Option<serde_json::Value>,
     #[serde(rename = "format", skip_serializing_if = "Option::is_none")]
-    pub format: Option<Box<models::V1CubeMetaFormat>>,
+    pub format: Option<String>,
     #[serde(rename = "order", skip_serializing_if = "Option::is_none")]
     pub order: Option<models::V1CubeMetaDimensionOrder>,
     /// Key reference for the dimension

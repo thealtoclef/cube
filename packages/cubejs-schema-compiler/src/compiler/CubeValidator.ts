@@ -111,13 +111,7 @@ const GranularityInterval = Joi.string().pattern(/^\d+\s+(second|minute|hour|day
 // Do not allow negative intervals for granularities, while offsets could be negative
 const GranularityOffset = Joi.string().pattern(/^-?(\d+\s+)(second|minute|hour|day|week|month|quarter|year)s?(\s-?\d+\s+(second|minute|hour|day|week|month|quarter|year)s?){0,7}$/, 'granularity offset');
 
-const formatSchema = Joi.alternatives([
-  Joi.string().valid('imageUrl', 'link', 'currency', 'percent', 'number', 'id'),
-  Joi.object().keys({
-    type: Joi.string().valid('link'),
-    label: Joi.string().required()
-  })
-]);
+const formatSchema = Joi.string();
 
 // POSIX strftime specification (IEEE Std 1003.1 / POSIX.1) with d3-time-format extensions
 // See: https://pubs.opengroup.org/onlinepubs/009695399/functions/strptime.html
@@ -248,10 +242,7 @@ const customNumericFormatSchema = Joi.string().custom((value, helper) => {
   return value;
 });
 
-const measureFormatSchema = Joi.alternatives([
-  Joi.string().valid('percent', 'currency', 'number'),
-  customNumericFormatSchema
-]);
+const measureFormatSchema = Joi.string();
 
 const dimensionNumericFormatSchema = Joi.alternatives([
   formatSchema,
@@ -270,13 +261,7 @@ const BaseDimensionWithoutSubQuery = {
   description: Joi.string(),
   suggestFilterValues: Joi.boolean().strict(),
   enableSuggestions: Joi.boolean().strict(),
-  format: Joi.when('type', {
-    switch: [
-      { is: 'time', then: timeFormatSchema },
-      { is: 'number', then: dimensionNumericFormatSchema },
-    ],
-    otherwise: formatSchema
-  }),
+  format: formatSchema,
   meta: Joi.any(),
   order: Joi.string().valid('asc', 'desc'),
   key: Joi.func(),

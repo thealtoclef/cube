@@ -17,9 +17,8 @@ export type GranularityAnnotation = {
 export type DimensionCustomTimeFormat = { type: 'custom-time'; value: string };
 export type CustomNumericFormat = { type: 'custom-numeric'; value: string };
 export type DimensionLinkFormat = { type: 'link'; label: string };
-export type DimensionFormat = 'percent' | 'currency' | 'number' | 'imageUrl' | 'id' | 'link'
-  | DimensionLinkFormat | DimensionCustomTimeFormat | CustomNumericFormat;
-export type MeasureFormat = 'percent' | 'currency' | 'number' | CustomNumericFormat;
+export type DimensionFormat = string;
+export type MeasureFormat = string;
 
 export type Annotation = {
   title: string;
@@ -383,7 +382,7 @@ export type TCubeMeasure = BaseCubeMember & {
     measures: string[];
     dimensions: string[];
   };
-  format?: 'currency' | 'percent';
+  format?: string;
 };
 
 export type CubeTimeDimensionGranularity = {
